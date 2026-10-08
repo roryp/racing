@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>LUNA GP · racing with the OpenAI Decisions API</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='28' fill='%23fbf1e1'/%3E%3Ccircle cx='44' cy='26' r='24' fill='%232c1a52'/%3E%3C/svg%3E"
+    />
+    <link rel="stylesheet" href="/css/style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <main id="stage-wrap">
+        <div id="stage">
+          <canvas id="game" aria-label="LUNA GP race view"></canvas>
+
+          <div id="hud" class="hidden">
+            <div class="hud-tl">
+              <div class="pos">P<span id="hud-pos">6</span><small>/<span id="hud-cars">6</span></small></div>
+              <div class="lap">LAP <span id="hud-lap">1</span>/<span id="hud-laps">3</span></div>
+            </div>
+            <div class="hud-tr">
+              <div class="row"><label>TIME</label><span id="hud-time">0:00.00</span></div>
+              <div class="row"><label>LAP</label><span id="hud-laptime">0:00.00</span></div>
+              <div class="row"><label>BEST</label><span id="hud-best">--:--.--</span></div>
+              <div class="row pen hidden" id="hud-penalty-row"><label>PEN</label><span id="hud-penalty">+0s</span></div>
+            </div>
+            <div class="hud-bl">
+              <div class="speed"><span id="hud-speed">0</span><small>km/h</small></div>
+              <div id="hud-nitro" class="nitro">
+                <div class="bar"><div id="hud-nitro-fill"></div></div>
+                <span>NITRO <kbd>Space</kbd></span>
+              </div>
+              <div id="hud-draft" class="draft hidden">≋ SLIPSTREAM</div>
+            </div>
+            <canvas id="minimap" width="190" height="190"></canvas>
+            <div id="start-lights" class="lights hidden"><i></i><i></i><i></i></div>
+            <div id="hud-center" class="center"></div>
+            <div id="ticker" class="ticker hidden"></div>
+          </div>
+
+          <div id="menu" class="overlay">
+            <div class="panel">
+              <h1>LUNA <span>GP</span></h1>
+              <p class="tagline">
+                Every rival driver thinks with the <b>OpenAI Decisions API</b>. Each second, they ask
+                <code>gpt-6-luna</code> a <em>choice</em> (maneuver), a <em>score</em> (pace), and a
+                <em>predicate</em> (fire nitro?).
+              </p>
+              <div id="menu-status" class="status">Checking the Decisions API…</div>
+              <div class="options">
+                <label
+                  >Rival AI
+                  <select id="opt-brain">
+                    <option value="api">OpenAI Decisions API</option>
+                    <option value="local">Offline heuristics</option>
+                  </select>
+                </label>
+                <label
+                  >Difficulty
+                  <select id="opt-difficulty">
+                    <option value="easy">Easy</option>
+                    <option value="normal">Normal</option>
+                    <option value="hard">Hard</option>
+                  </select>
+                </label>
+                <label
+                  >Laps
+                  <select id="opt-laps">
+                    <option value="1">1</option>
+                    <option value="2">2</option>
+                    <option value="3">3</option>
+                    <option value="5">5</option>
+                  </select>
+                </label>
+                <label class="check"><input type="checkbox" id="opt-stewards" /> AI Race Control (penalties)</label>
+              </div>
+              <button id="btn-start" class="primary">Start race <kbd>Enter</kbd></button>
+              <div class="controls">
+                <span><kbd>←</kbd><kbd>→</kbd> steer</span>
+                <span><kbd>↑</kbd> throttle</span>
+                <span><kbd>↓</kbd> brake</span>
+                <span><kbd>Space</kbd> nitro</span>
+                <span><kbd>P</kbd> pause</span>
+                <span><kbd>L</kbd> AI tags</span>
+                <span><kbd>M</kbd> mute</span>
+              </div>
+            </div>
+          </div>
+
+          <div id="pause" class="overlay hidden">
+            <div class="panel small">
+              <h2>Paused</h2>
+              <button id="btn-resume" class="primary">Resume</button>
+              <button id="btn-restart">Restart race</button>
+              <button id="btn-quit">Quit to menu</button>
+            </div>
+          </div>
+
+          <div id="results" class="overlay hidden">
+            <div class="panel wide">
+              <h2 id="results-title">Results</h2>
+              <table class="results">
+                <thead>
+                  <tr>
+                    <th>Pos</th>
+                    <th>Driver</th>
+                    <th>Time</th>
+                    <th>Pen.</th>
+                    <th>Best lap</th>
+                    <th>Overtakes</th>
+                    <th>Contacts</th>
+                  </tr>
+                </thead>
+                <tbody id="results-body"></tbody>
+              </table>
+              <div id="debrief" class="debrief"></div>
+              <div class="buttons">
+                <button id="btn-again" class="primary">Race again <kbd>Enter</kbd></button>
+                <button id="btn-menu">Main menu</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+
+      <aside id="pitwall">
+        <header>
+          <div>
+            <h2>Pit Wall</h2>
+            <div class="sub">Live answers from <b>POST /v1/decisions</b></div>
+          </div>
+          <div id="api-status" class="pill">● checking…</div>
+        </header>
+        <div class="stats">
+          <div><label>calls</label><span id="stat-calls">0</span></div>
+          <div><label>latency</label><span id="stat-latency">–</span></div>
+          <div><label>tokens</label><span id="stat-tokens">0</span></div>
+          <div><label>cost</label><span id="stat-cost">$0.0000</span></div>
+        </div>
+        <div class="qtypes">
+          <span><b>choice</b> → maneuver</span><span><b>score</b> → pace</span><span><b>predicate</b> → nitro</span>
+        </div>
+        <div id="legend" class="legend"></div>
+        <div id="rival-cards" class="cards">
+          <div class="muted">Start a race to see each rival's decisions stream in.</div>
+        </div>
+        <section class="rc">
+          <h3>Race Control <small>choice + score, with onboard image</small></h3>
+          <ol id="rc-log"></ol>
+        </section>
+      </aside>
+    </div>
+    <script type="module" src="/js/main.js"></script>
+  </body>
+</html>
