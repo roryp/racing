@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en" class="duel-page">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Speed Duel · Decisions API vs Responses API · LUNA GP</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='28' fill='%23fbf1e1'/%3E%3Ccircle cx='44' cy='26' r='24' fill='%232c1a52'/%3E%3C/svg%3E"
+    />
+    <link rel="stylesheet" href="/css/style.css" />
+    <link rel="stylesheet" href="/css/duel.css" />
+  </head>
+  <body>
+    <main class="duel">
+      <header class="duel-head">
+        <a class="back" href="/">← Back to the race</a>
+        <h1>SPEED <span>DUEL</span></h1>
+        <p class="tagline">
+          Two OpenAI endpoints get the same race situations and the same three questions: a <em>choice</em> (which
+          maneuver?), a <em>score</em> (how hard to push?) and a <em>predicate</em> (fire nitro?). Every answer moves
+          that API's car one step. First to the flag wins.
+        </p>
+      </header>
+
+      <section class="duel-controls">
+        <label
+          >Opponent
+          <select id="opt-opponent"></select>
+        </label>
+        <label
+          >Race decisions
+          <select id="opt-rounds">
+            <option value="5">5</option>
+            <option value="10" selected>10</option>
+            <option value="20">20</option>
+          </select>
+        </label>
+        <button id="btn-duel" class="primary" disabled>Start duel <kbd>Enter</kbd></button>
+      </section>
+      <div id="duel-status" class="status">Connecting to the game server…</div>
+
+      <div class="strip-wrap">
+        <canvas id="strip" aria-label="Drag race between the Decisions API and the Responses API"></canvas>
+      </div>
+
+      <section id="lane-cards" class="lanes"></section>
+
+      <section id="duel-result" class="duel-result hidden">
+        <div id="result-headline" class="headline"></div>
+        <div id="result-sub" class="sub"></div>
+        <pre id="share" class="share"></pre>
+        <div class="buttons">
+          <button id="btn-copy">📋 Copy result</button>
+          <button id="btn-again" class="primary">Race again</button>
+        </div>
+        <details>
+          <summary>Show every answer</summary>
+          <table class="answers">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Race situation</th>
+                <th id="th-a">Decisions API</th>
+                <th>time</th>
+                <th id="th-b">Responses API</th>
+                <th>time</th>
+                <th>Same move</th>
+              </tr>
+            </thead>
+            <tbody id="answers-body"></tbody>
+          </table>
+        </details>
+      </section>
+
+      <p class="fineprint">
+        How it's measured: the game server calls OpenAI with your API key and times each request from the moment it's
+        sent until the last byte of the answer arrives, so your browser's own connection doesn't count. Both cars get
+        identical race situations, evidence and questions. The Responses API answers through Structured Outputs (a strict
+        JSON schema) with the reasoning setting shown on its card. Connections are warmed up before the lights go out.
+      </p>
+    </main>
+    <script type="module" src="/js/duel.js"></script>
+  </body>
+</html>

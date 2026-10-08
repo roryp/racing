@@ -449,6 +449,19 @@ button.primary {
   padding: 14px;
 }
 
+.duel-link {
+  display: inline-block;
+  margin-top: 12px;
+  color: var(--cyan);
+  font-size: 14px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.duel-link:hover {
+  text-decoration: underline;
+}
+
 .controls {
   display: flex;
   flex-wrap: wrap;

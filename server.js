@@ -1,12 +1,15 @@
-// LUNA GP server: serves the game and proxies typed questions to the OpenAI
-// Decisions API so the API key never reaches the browser.
+// LUNA GP server: serves the game, proxies typed questions to the OpenAI
+// Decisions API so the API key never reaches the browser, and runs the speed
+// duel that times the Decisions API against the Responses API.
 
 import http from "node:http";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { createDecisionsClient, DecisionsError, DEFAULT_MODEL } from "./lib/decisions.js";
+import { decisionsContender, OPPONENTS, runContender, SCENARIOS } from "./lib/benchmark.js";
+import { createDecisionsClient, DEFAULT_MODEL } from "./lib/decisions.js";
 import { resolveApiKey } from "./lib/env.js";
+import { OpenAIError } from "./lib/openai.js";
 import {
   buildDebriefRequest,
   buildRivalRequest,
@@ -15,6 +18,7 @@ import {
   parseRivalDecision,
   parseStewardDecision,
 } from "./lib/prompts.js";
+import { createResponsesClient } from "./lib/responses.js";
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(ROOT, "public");
@@ -49,6 +53,10 @@ const decisions = key
       timeoutMs: 8000,
     })
   : null;
+const responses = key
+  ? createResponsesClient({ apiKey: key, baseURL: process.env.OPENAI_BASE_URL || undefined, timeoutMs: 60_000 })
+  : null;
+const DUEL_CONTENDERS = [decisionsContender(MODEL), ...OPPONENTS];
 
 const LOOPBACK = ["127.0.0.1", "localhost", "::1"].includes(HOST);
 const ALLOWED_HOSTS = new Set([`127.0.0.1:${PORT}`, `localhost:${PORT}`, `[::1]:${PORT}`]);
@@ -139,10 +147,60 @@ async function handleDecision(name, route, req, res) {
     });
   } catch (err) {
     stats.errors++;
-    const upstream = err instanceof DecisionsError;
+    const upstream = err instanceof OpenAIError;
     console.warn(`[decisions] ${name} failed: ${err.message}${upstream && err.status ? ` (HTTP ${err.status})` : ""}`);
     const status = upstream ? (err.status === 429 ? 429 : 502) : 500;
     return sendJson(res, status, { error: err.message, code: upstream ? err.code : null });
+  } finally {
+    inFlight--;
+  }
+}
+
+// Speed duel: GET lists the contenders and race situations; POST times one
+// contender on one situation. Only the predefined setups can be requested.
+async function handleDuel(req, res) {
+  if (req.method === "GET") {
+    return sendJson(res, 200, {
+      configured: Boolean(decisions),
+      contenders: DUEL_CONTENDERS.map(({ id, api, model, reasoning, label, short, detail }) => ({
+        id,
+        api,
+        model,
+        reasoning,
+        label,
+        short,
+        detail,
+      })),
+      scenarios: SCENARIOS.map((s) => s.label),
+    });
+  }
+  if (req.method !== "POST") return sendJson(res, 405, { error: "Method not allowed" });
+  if (!isTrustedRequest(req)) return sendJson(res, 403, { error: "Forbidden origin" });
+  if (!decisions) return sendJson(res, 503, { error: "OPENAI_API_KEY is not configured on the server" });
+  if (inFlight >= MAX_IN_FLIGHT) return sendJson(res, 429, { error: "Too many requests in flight" });
+
+  let body;
+  try {
+    body = await readJson(req, 1024);
+  } catch (err) {
+    return sendJson(res, err.status ?? 400, { error: err.message });
+  }
+  const contender = DUEL_CONTENDERS.find((c) => c.id === body?.contender);
+  if (!contender) return sendJson(res, 400, { error: "Unknown contender" });
+  const scenario = body.scenario;
+  if (!Number.isInteger(scenario) || scenario < 0 || scenario >= SCENARIOS.length) {
+    return sendJson(res, 400, { error: "Unknown scenario" });
+  }
+
+  inFlight++;
+  try {
+    const result = await runContender({ contender, scenario, decisions, responses });
+    if (VERBOSE) console.log(`[duel] ${contender.id} #${scenario} ${result.latencyMs}ms ${JSON.stringify(result.answer)}`);
+    return sendJson(res, 200, result);
+  } catch (err) {
+    const upstream = err instanceof OpenAIError;
+    console.warn(`[duel] ${contender.id} failed: ${err.message}${upstream && err.status ? ` (HTTP ${err.status})` : ""}`);
+    return sendJson(res, upstream ? (err.status === 429 ? 429 : 502) : 500, { error: err.message });
   } finally {
     inFlight--;
   }
@@ -178,6 +236,7 @@ const server = http.createServer(async (req, res) => {
     if (pathname === "/api/status") {
       return sendJson(res, 200, { configured: Boolean(decisions), model: MODEL, keySource });
     }
+    if (pathname === "/api/duel") return await handleDuel(req, res);
     const route = ROUTES[pathname];
     if (route) return await handleDecision(pathname.slice(5), route, req, res);
     if (req.method !== "GET" && req.method !== "HEAD") return sendJson(res, 405, { error: "Method not allowed" });
@@ -193,6 +252,7 @@ server.listen(PORT, HOST, () => {
   console.log(`LUNA GP is running at ${where}`);
   if (decisions) {
     console.log(`Decisions API: enabled (model ${MODEL}, key from ${keySource})`);
+    console.log(`Speed duel: ${where}/duel.html`);
   } else {
     console.log("Decisions API: OPENAI_API_KEY not found - rivals will fall back to offline heuristics.");
   }

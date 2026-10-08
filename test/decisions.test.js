@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   createDecisionsClient,
-  DecisionsError,
   indexAnswers,
+  OpenAIError,
   refusals,
   summarizeChoice,
   summarizePredicate,
@@ -56,16 +56,17 @@ describe("createDecisionsClient", () => {
   it("honours a custom base URL and model", async () => {
     const { impl, calls } = fakeFetch(200, { answers: [] });
     const client = createDecisionsClient({ apiKey: "k", model: "m", baseURL: "http://proxy/v1/", fetchImpl: impl });
-    await client.create({ input: "x", questions: [] });
+    const result = await client.create({ input: "x", questions: [] });
     assert.equal(calls[0].url, "http://proxy/v1/decisions");
+    assert.equal(result.processingMs, null, "a missing openai-processing-ms header is reported as null");
     assert.equal(JSON.parse(calls[0].init.body).model, "m");
   });
 
-  it("throws DecisionsError with the API error message on HTTP errors", async () => {
+  it("throws OpenAIError with the API error message on HTTP errors", async () => {
     const { impl } = fakeFetch(401, { error: { message: "Incorrect API key", code: "invalid_api_key" } });
     const client = createDecisionsClient({ apiKey: "bad", fetchImpl: impl });
     await assert.rejects(client.create({ input: "x", questions: [] }), (err) => {
-      assert.ok(err instanceof DecisionsError);
+      assert.ok(err instanceof OpenAIError);
       assert.equal(err.status, 401);
       assert.equal(err.code, "invalid_api_key");
       assert.equal(err.message, "Incorrect API key");
@@ -80,7 +81,7 @@ describe("createDecisionsClient", () => {
         throw new TypeError("fetch failed");
       },
     });
-    await assert.rejects(failing.create({ input: "x", questions: [] }), { name: "DecisionsError", code: "network_error" });
+    await assert.rejects(failing.create({ input: "x", questions: [] }), { name: "OpenAIError", code: "network_error" });
 
     const { impl } = fakeFetch(200, "not json");
     const garbled = createDecisionsClient({ apiKey: "k", fetchImpl: impl });
