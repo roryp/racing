@@ -8,6 +8,13 @@ You drive. The game engine handles physics. The Decisions API makes the rivals' 
 Want to see how fast it is? The **Speed Duel** races the Decisions API against the regular Responses API, live, on the
 same questions. See [Speed duel](#speed-duel-decisions-api-vs-responses-api).
 
+## Race screen
+
+The race view combines the arcade driving HUD with live Decisions API telemetry. The highlighted areas show where to
+find race progress, driving information, rival decisions and Race Control rulings.
+
+![Annotated LUNA GP race screen](docs/images/race-overview.png)
+
 ## Run it
 
 Requirements: Node.js 20+ and an `OPENAI_API_KEY` environment variable. There are no dependencies, so there's nothing to install.
@@ -82,6 +89,8 @@ showing friends. Two cars line up on a drag strip:
 
 Both cars get the same race situations and the same three rival-driver questions: a `choice` (which maneuver?), a
 `score` (how hard to push?) and a `predicate` (fire nitro?). Each answer moves that car one step toward the flag.
+
+![Annotated LUNA GP Speed Duel screen](docs/images/duel-overview.png)
 
 ### Run the duel
 
