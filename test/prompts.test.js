@@ -9,7 +9,8 @@ import {
   parseRivalDecision,
   parseStewardDecision,
 } from "../lib/prompts.js";
-import { resolveApiKey } from "../lib/env.js";
+import { resolveEnv } from "../lib/env.js";
+import { azureCliTokenProvider, foundryAuth, managedIdentityToken, resolveFoundryConfig } from "../lib/foundry.js";
 
 const rivalState = {
   driver: { name: "Vega", number: 7, personality: "aggressive" },
@@ -118,7 +119,7 @@ describe("buildStewardRequest", () => {
     playerNitro: true,
   };
 
-  it("uses plain text input when no frame is attached", () => {
+  it("describes the contact in plain text", () => {
     const { input, questions } = buildStewardRequest(incident);
     assert.equal(typeof input, "string");
     assert.match(input, /the player ran into the back of Orion with a closing speed of 40 km\/h/);
@@ -133,17 +134,8 @@ describe("buildStewardRequest", () => {
     );
   });
 
-  it("attaches a valid onboard frame as an input_image", () => {
-    const frame = "data:image/jpeg;base64,/9j/4AAQSkZJRg==";
-    const { input } = buildStewardRequest({ ...incident, frame });
-    assert.ok(Array.isArray(input));
-    assert.equal(input[0].role, "user");
-    assert.equal(input[0].content[0].type, "input_text");
-    assert.deepEqual(input[0].content[1], { type: "input_image", image_url: frame });
-  });
-
-  it("ignores frames that are not inline base64 images", () => {
-    for (const frame of ["https://example.com/a.png", "data:text/html;base64,PGgxPg==", "data:image/png;base64,<script>"]) {
+  it("always sends plain text, because Microsoft-Decision-1 is text-only", () => {
+    for (const frame of ["data:image/jpeg;base64,/9j/4AAQSkZJRg==", "https://example.com/a.png"]) {
       assert.equal(typeof buildStewardRequest({ ...incident, frame }).input, "string");
     }
   });
@@ -216,28 +208,90 @@ describe("buildDebriefRequest", () => {
   });
 });
 
-describe("resolveApiKey", () => {
+describe("resolveEnv", () => {
   const noReg = () => {
     throw new Error("not found");
   };
 
   it("prefers the process environment", () => {
-    assert.deepEqual(resolveApiKey({ OPENAI_API_KEY: " sk-env " }, "win32", noReg), {
-      key: "sk-env",
+    assert.deepEqual(resolveEnv("FOUNDRY_ENDPOINT", { FOUNDRY_ENDPOINT: " https://e " }, "win32", noReg), {
+      value: "https://e",
       source: "process environment",
     });
   });
 
-  it("falls back to the persisted Windows user environment", () => {
-    const reg = () => "\r\nHKEY_CURRENT_USER\\Environment\r\n    OPENAI_API_KEY    REG_SZ    sk-from-registry\r\n\r\n";
-    assert.deepEqual(resolveApiKey({}, "win32", reg), {
-      key: "sk-from-registry",
+  it("returns null when the variable is not set", () => {
+    assert.deepEqual(resolveEnv("FOUNDRY_ENDPOINT", {}, "win32", noReg), { value: null, source: null });
+    assert.deepEqual(resolveEnv("FOUNDRY_ENDPOINT", {}, "linux", noReg), { value: null, source: null });
+  });
+});
+
+describe("resolveEnv / resolveFoundryConfig", () => {
+  const noReg = () => {
+    throw new Error("not found");
+  };
+
+  it("reads any variable from the persisted Windows environment", () => {
+    const reg = (_cmd, args) =>
+      args[3] === "FOUNDRY_ENDPOINT" ? "\r\n    FOUNDRY_ENDPOINT    REG_SZ    https://x.example/\r\n" : (() => { throw new Error("nope"); })();
+    assert.deepEqual(resolveEnv("FOUNDRY_ENDPOINT", {}, "win32", reg), {
+      value: "https://x.example/",
       source: "Windows user environment",
     });
   });
 
-  it("returns null when no key is available", () => {
-    assert.deepEqual(resolveApiKey({}, "win32", noReg), { key: null, source: null });
-    assert.deepEqual(resolveApiKey({}, "linux", noReg), { key: null, source: null });
+  it("defaults the deployment and prefers an API key when one is set", () => {
+    assert.deepEqual(resolveFoundryConfig({ FOUNDRY_ENDPOINT: "https://r.example/" }, "linux", noReg), {
+      endpoint: "https://r.example",
+      endpointSource: "process environment",
+      deployment: "decision-1-dz",
+      apiKey: null,
+      managedIdentity: false,
+      authSource: "Entra ID (Azure CLI login)",
+    });
+    const withKey = resolveFoundryConfig({ FOUNDRY_ENDPOINT: "e", FOUNDRY_DEPLOYMENT: "d", FOUNDRY_API_KEY: "k" }, "linux", noReg);
+    assert.equal(withKey.deployment, "d");
+    assert.equal(withKey.authSource, "FOUNDRY_API_KEY");
+  });
+
+  it("returns api-key headers when a key is configured", async () => {
+    assert.deepEqual(await foundryAuth({ apiKey: "k" })(), { "api-key": "k" });
+  });
+
+  it("caches Entra tokens until shortly before they expire", async () => {
+    let calls = 0;
+    let clock = 1_000_000;
+    const getHeaders = azureCliTokenProvider({
+      now: () => clock,
+      fetchToken: async () => {
+        calls++;
+        return { accessToken: `t${calls}`, expires_on: (clock + 60 * 60_000) / 1000 };
+      },
+    });
+    const [a, b] = await Promise.all([getHeaders(), getHeaders()]);
+    assert.equal(calls, 1, "concurrent callers share one token request");
+    assert.deepEqual(a, { Authorization: "Bearer t1" });
+    assert.equal(b, a);
+    clock += 50 * 60_000;
+    assert.deepEqual(await getHeaders(), { Authorization: "Bearer t1" });
+    clock += 6 * 60_000;
+    assert.deepEqual(await getHeaders(), { Authorization: "Bearer t2" });
+  });
+
+  it("uses the App Service managed identity when IDENTITY_ENDPOINT is set", async () => {
+    const env = { FOUNDRY_ENDPOINT: "e", IDENTITY_ENDPOINT: "http://169.254.130.1/msi/token", IDENTITY_HEADER: "h" };
+    assert.equal(resolveFoundryConfig(env, "linux", noReg).authSource, "managed identity");
+    const calls = [];
+    const fetchToken = managedIdentityToken({
+      env,
+      fetchImpl: async (url, init) => {
+        calls.push({ url: String(url), init });
+        return new Response(JSON.stringify({ access_token: "mi", expires_on: "4102444800" }), { status: 200 });
+      },
+    });
+    const getHeaders = azureCliTokenProvider({ fetchToken });
+    assert.deepEqual(await getHeaders(), { Authorization: "Bearer mi" });
+    assert.match(calls[0].url, /resource=https%3A%2F%2Fcognitiveservices\.azure\.com&api-version=2019-08-01/);
+    assert.equal(calls[0].init.headers["X-IDENTITY-HEADER"], "h");
   });
 });

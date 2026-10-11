@@ -90,7 +90,7 @@ export class Hud {
             <div class="mhead"><label>pace</label><span class="val">–</span></div>
             <div class="meter"><div class="fill"></div></div>
           </div>
-          <div class="metric nitro" title="predicate: probability that firing nitro now is right (line = threshold)">
+          <div class="metric nitro" title="noul: probability that firing nitro now is right (line = threshold)">
             <div class="mhead"><label>nitro</label><span class="val">–</span></div>
             <div class="meter"><div class="fill"></div><div class="thresh"></div></div>
           </div>
@@ -133,7 +133,7 @@ export class Hud {
     if (b.source === "api") {
       view.src.className = "src api";
       view.src.textContent = `API ${b.latencyMs ?? "?"} ms`;
-      view.src.title = "Answered by the OpenAI Decisions API";
+      view.src.title = "Answered by Microsoft-Decision-1";
     } else {
       view.src.className = `src ${b.error ? "err" : "local"}`;
       view.src.textContent = b.error ? "FALLBACK" : "LOCAL";
@@ -196,7 +196,7 @@ export class Hud {
 
     if (event.status === "reviewing") {
       li.className = "pending";
-      li.innerHTML = `<div>${head}</div><div class="verdict">Stewards reviewing${incident.front === "player" ? "" : " (with onboard frame)"}…</div>`;
+      li.innerHTML = `<div>${head}</div><div class="verdict">Stewards reviewing…</div>`;
       return;
     }
     if (event.status === "error") {
@@ -406,12 +406,12 @@ export class Hud {
       : "";
     const cleanHtml = clean
       ? `<div class="db-block">
-          <h4>Clean racer? <small>predicate</small></h4>
+          <h4>Clean racer? <small>noul</small></h4>
           <div class="big ${clean.probability >= 0.5 ? "yes" : "no"}">${clean.probability >= 0.5 ? "✔ Yes" : "✘ No"} <small>p = ${clean.probability.toFixed(2)}</small></div>
           <div class="meter wide"><div class="fill" style="width:${pct(clean.probability)}"></div></div>
         </div>`
       : "";
     $("debrief").innerHTML = `<div class="db-grid">${ratingHtml}${dotdHtml}${cleanHtml}</div>
-      <div class="muted small">Debrief by the OpenAI Decisions API · ${result.roundTripMs ?? "?"} ms · ${result.inputTokens ?? "?"} input tokens</div>`;
+      <div class="muted small">Debrief by Microsoft-Decision-1 · ${result.roundTripMs ?? "?"} ms · ${result.inputTokens ?? "?"} input tokens</div>`;
   }
 }

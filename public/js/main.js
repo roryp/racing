@@ -35,7 +35,7 @@ let race = new Race({ track, laps: settings.laps, difficulty: settings.difficult
 let brains = null;
 let control = null;
 let apiConfigured = false;
-let apiModel = "gpt-6-luna";
+let apiModel = "Microsoft-Decision-1";
 let resultsShown = false;
 let shake = 0;
 const parallax = { mountains: 0, hills: 0, trees: 0 };
@@ -70,13 +70,13 @@ async function checkApiStatus() {
   const box = $("menu-status");
   if (apiConfigured) {
     box.className = "status ok";
-    box.innerHTML = `✅ API key found (${status.keySource ?? "environment"}) · model <code>${apiModel}</code>`;
+    box.innerHTML = `✅ Foundry configured (${status.keySource ?? "environment"}) · model <code>${apiModel}</code>`;
     hud.setApiStatus("ok", `● ${apiModel} ready`);
   } else {
     box.className = "status warn";
     box.textContent = status.unreachable
       ? "⚠ Game server unreachable. Start it with npm start."
-      : "⚠ OPENAI_API_KEY not found by the server. Rivals will use offline heuristics.";
+      : "⚠ FOUNDRY_ENDPOINT not set on the server. Rivals will use offline heuristics.";
     options.brain.value = "local";
     options.brain.querySelector('option[value="api"]').disabled = true;
     hud.setApiStatus("warn", "● offline heuristics");

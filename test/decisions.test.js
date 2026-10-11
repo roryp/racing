@@ -8,6 +8,8 @@ import {
   summarizeChoice,
   summarizePredicate,
   summarizeScore,
+  toFoundryQuestions,
+  toState,
 } from "../lib/decisions.js";
 
 function fakeFetch(status, body, headers = {}) {
@@ -19,77 +21,140 @@ function fakeFetch(status, body, headers = {}) {
   return { impl, calls };
 }
 
+const ENDPOINT = "https://res.cognitiveservices.azure.com/";
+const auth = (headers = { Authorization: "Bearer tok" }) => async () => headers;
+
 describe("createDecisionsClient", () => {
-  it("posts model, input and questions to /v1/decisions and indexes answers by name", async () => {
+  it("posts state and keyed questions to the Foundry systemone endpoint and translates answers back", async () => {
     const { impl, calls } = fakeFetch(
       200,
       {
-        model: "gpt-6-luna",
-        answers: [
-          { type: "predicate", name: "nitro", probability: 0.8 },
-          { type: "choice", name: "maneuver", choice: "defend", probabilities: [], confidence: 0.5 },
-        ],
-        usage: { input_tokens: 123 },
+        model: "microsoft-decision-1",
+        answers: {
+          nitro: { type: "noul", noul: 0.8 },
+          maneuver: { type: "choice", choice: "defend", confidence: 0.5, probabilities: { slip: 0.25, defend: 0.75 } },
+          pace: { type: "score", score: 1.4, confidence: 0.3, legend: { 0: "a", 1: "b" }, probabilities: { 1: 0.4, 0: 0.6 } },
+        },
+        usage: { input_tokens: 123, output_tokens: 3 },
       },
-      { "openai-processing-ms": "42", "x-request-id": "req_1" },
+      { "x-request-id": "req_1" },
     );
-    const client = createDecisionsClient({ apiKey: "sk-test", fetchImpl: impl });
-    const result = await client.create({ input: "hello", questions: [{ type: "predicate", name: "nitro" }] });
+    const client = createDecisionsClient({ endpoint: ENDPOINT, getHeaders: auth(), fetchImpl: impl });
+    const questions = [
+      { type: "predicate", name: "nitro", instructions: "Fire?" },
+      {
+        type: "choice",
+        name: "maneuver",
+        instructions: "Which?",
+        choices: [{ value: "defend", description: "Block" }, { value: "slip" }],
+      },
+      { type: "score", name: "pace", instructions: "How hard?", levels: [{ label: "Low", description: "Easy" }, { label: "High" }] },
+    ];
+    const result = await client.create({ input: "hello", questions });
 
     assert.equal(calls.length, 1);
-    assert.equal(calls[0].url, "https://api.openai.com/v1/decisions");
+    assert.equal(calls[0].url, "https://res.cognitiveservices.azure.com/providers/microsoft/v1/systemone");
     assert.equal(calls[0].init.method, "POST");
-    assert.equal(calls[0].init.headers.Authorization, "Bearer sk-test");
+    assert.equal(calls[0].init.headers.Authorization, "Bearer tok");
     assert.deepEqual(JSON.parse(calls[0].init.body), {
-      model: "gpt-6-luna",
-      input: "hello",
-      questions: [{ type: "predicate", name: "nitro" }],
+      model: "decision-1-dz",
+      state: "hello",
+      questions: {
+        nitro: { type: "noul", instructions: "Fire?" },
+        maneuver: { type: "choice", instructions: "Which?", criteria: { defend: "Block", slip: "slip" } },
+        pace: { type: "score", instructions: "How hard?", criteria: ["Low: Easy", "High"] },
+      },
     });
-    assert.equal(result.answers.nitro.probability, 0.8);
-    assert.equal(result.answers.maneuver.choice, "defend");
+    assert.deepEqual(result.answers.nitro, { type: "predicate", name: "nitro", probability: 0.8 });
+    assert.deepEqual(summarizeChoice(result.answers.maneuver), {
+      choice: "defend",
+      confidence: 0.5,
+      probabilities: { defend: 0.75, slip: 0.25 },
+    });
+    assert.deepEqual(summarizeScore(result.answers.pace), {
+      score: 1.4,
+      confidence: 0.3,
+      probabilities: [0.6, 0.4],
+      labels: ["Low", "High"],
+    });
+    assert.equal(result.model, "microsoft-decision-1");
     assert.equal(result.usage.input_tokens, 123);
-    assert.equal(result.processingMs, 42);
+    assert.equal(result.processingMs, null);
     assert.equal(result.requestId, "req_1");
     assert.ok(result.latencyMs >= 0);
   });
 
-  it("honours a custom base URL and model", async () => {
-    const { impl, calls } = fakeFetch(200, { answers: [] });
-    const client = createDecisionsClient({ apiKey: "k", model: "m", baseURL: "http://proxy/v1/", fetchImpl: impl });
-    const result = await client.create({ input: "x", questions: [] });
-    assert.equal(calls[0].url, "http://proxy/v1/decisions");
-    assert.equal(result.processingMs, null, "a missing openai-processing-ms header is reported as null");
-    assert.equal(JSON.parse(calls[0].init.body).model, "m");
+  it("honours a custom deployment and API-key headers", async () => {
+    const { impl, calls } = fakeFetch(200, { answers: {} });
+    const client = createDecisionsClient({
+      endpoint: "http://proxy",
+      deployment: "my-dep",
+      getHeaders: auth({ "api-key": "k" }),
+      fetchImpl: impl,
+    });
+    await client.create({ input: "x", questions: [] });
+    assert.equal(calls[0].url, "http://proxy/providers/microsoft/v1/systemone");
+    assert.equal(calls[0].init.headers["api-key"], "k");
+    assert.equal(calls[0].init.headers.Authorization, undefined);
+    assert.equal(JSON.parse(calls[0].init.body).model, "my-dep");
   });
 
   it("throws OpenAIError with the API error message on HTTP errors", async () => {
-    const { impl } = fakeFetch(401, { error: { message: "Incorrect API key", code: "invalid_api_key" } });
-    const client = createDecisionsClient({ apiKey: "bad", fetchImpl: impl });
+    const { impl } = fakeFetch(401, { error: { message: "Bad token", code: "Unauthorized" } });
+    const client = createDecisionsClient({ endpoint: ENDPOINT, getHeaders: auth(), fetchImpl: impl });
     await assert.rejects(client.create({ input: "x", questions: [] }), (err) => {
       assert.ok(err instanceof OpenAIError);
       assert.equal(err.status, 401);
-      assert.equal(err.code, "invalid_api_key");
-      assert.equal(err.message, "Incorrect API key");
+      assert.equal(err.code, "Unauthorized");
+      assert.equal(err.message, "Bad token");
       return true;
     });
   });
 
-  it("wraps network failures and malformed payloads", async () => {
+  it("wraps auth failures, network failures and malformed payloads", async () => {
+    const noAuth = createDecisionsClient({
+      endpoint: ENDPOINT,
+      getHeaders: async () => {
+        throw new Error("Run az login");
+      },
+      fetchImpl: fakeFetch(200, {}).impl,
+    });
+    await assert.rejects(noAuth.create({ input: "x", questions: [] }), { name: "OpenAIError", code: "auth_error" });
+
     const failing = createDecisionsClient({
-      apiKey: "k",
+      endpoint: ENDPOINT,
+      getHeaders: auth(),
       fetchImpl: async () => {
         throw new TypeError("fetch failed");
       },
     });
     await assert.rejects(failing.create({ input: "x", questions: [] }), { name: "OpenAIError", code: "network_error" });
 
-    const { impl } = fakeFetch(200, "not json");
-    const garbled = createDecisionsClient({ apiKey: "k", fetchImpl: impl });
-    await assert.rejects(garbled.create({ input: "x", questions: [] }), /unexpected payload/);
+    for (const body of ["not json", { answers: [] }]) {
+      const garbled = createDecisionsClient({ endpoint: ENDPOINT, getHeaders: auth(), fetchImpl: fakeFetch(200, body).impl });
+      await assert.rejects(garbled.create({ input: "x", questions: [] }), /unexpected payload/);
+    }
   });
 
-  it("requires an API key", () => {
-    assert.throws(() => createDecisionsClient({}), /apiKey is required/);
+  it("requires an endpoint and an auth header provider", () => {
+    assert.throws(() => createDecisionsClient({}), /endpoint is required/);
+    assert.throws(() => createDecisionsClient({ endpoint: ENDPOINT }), /getHeaders is required/);
+  });
+});
+
+describe("toState", () => {
+  it("passes text through and flattens message input to its text parts", () => {
+    assert.equal(toState("plain"), "plain");
+    assert.equal(
+      toState([{ role: "user", content: [{ type: "input_text", text: "a" }, { type: "input_image", image_url: "x" }] }]),
+      "a",
+    );
+  });
+});
+
+describe("toFoundryQuestions", () => {
+  it("rejects unknown question types", () => {
+    assert.throws(() => toFoundryQuestions([{ type: "essay", name: "x" }]), /Unsupported question type/);
   });
 });
 

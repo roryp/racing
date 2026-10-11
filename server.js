@@ -1,14 +1,14 @@
-// LUNA GP server: serves the game, proxies typed questions to the OpenAI
-// Decisions API so the API key never reaches the browser, and runs the speed
-// duel that times the Decisions API against the Responses API.
+// LUNA GP server: serves the game, proxies typed questions to Microsoft-Decision-1
+// on Microsoft Foundry so credentials never reach the browser, and runs the speed
+// duel that times different ways of asking the model.
 
 import http from "node:http";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { decisionsContender, OPPONENTS, runContender, SCENARIOS } from "./lib/benchmark.js";
-import { createDecisionsClient, DEFAULT_MODEL } from "./lib/decisions.js";
-import { resolveApiKey } from "./lib/env.js";
+import { decisionsContender, opponents, runContender, SCENARIOS } from "./lib/benchmark.js";
+import { createDecisionsClient, MODEL_NAME } from "./lib/decisions.js";
+import { foundryAuth, resolveFoundryConfig } from "./lib/foundry.js";
 import { OpenAIError } from "./lib/openai.js";
 import {
   buildDebriefRequest,
@@ -18,13 +18,11 @@ import {
   parseRivalDecision,
   parseStewardDecision,
 } from "./lib/prompts.js";
-import { createResponsesClient } from "./lib/responses.js";
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(ROOT, "public");
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || "127.0.0.1";
-const MODEL = process.env.DECISIONS_MODEL || DEFAULT_MODEL;
 const VERBOSE = process.env.LOG_DECISIONS === "1";
 const MAX_IN_FLIGHT = 16;
 
@@ -40,23 +38,21 @@ const MIME = {
 
 const ROUTES = {
   "/api/rival": { build: buildRivalRequest, parse: parseRivalDecision, maxBytes: 16 * 1024 },
-  "/api/steward": { build: buildStewardRequest, parse: parseStewardDecision, maxBytes: 1024 * 1024 },
+  "/api/steward": { build: buildStewardRequest, parse: parseStewardDecision, maxBytes: 16 * 1024 },
   "/api/debrief": { build: buildDebriefRequest, parse: parseDebriefDecision, maxBytes: 32 * 1024 },
 };
 
-const { key, source: keySource } = resolveApiKey();
-const decisions = key
-  ? createDecisionsClient({
-      apiKey: key,
-      model: MODEL,
-      baseURL: process.env.OPENAI_BASE_URL || undefined,
-      timeoutMs: 8000,
-    })
+const foundry = resolveFoundryConfig();
+const MODEL = `${MODEL_NAME} (${foundry.deployment})`;
+const keySource = foundry.authSource;
+const getHeaders = foundryAuth(foundry);
+const decisions = foundry.endpoint
+  ? createDecisionsClient({ endpoint: foundry.endpoint, deployment: foundry.deployment, getHeaders, timeoutMs: 8000 })
   : null;
-const responses = key
-  ? createResponsesClient({ apiKey: key, baseURL: process.env.OPENAI_BASE_URL || undefined, timeoutMs: 60_000 })
-  : null;
-const DUEL_CONTENDERS = [decisionsContender(MODEL), ...OPPONENTS];
+// Fetch the first Entra ID token at startup so the first race decision doesn't wait for it.
+if (decisions) getHeaders().catch((err) => console.warn(`[auth] ${err.message}`));
+const DUEL_CONTENDERS = [decisionsContender(MODEL_NAME), ...opponents(MODEL_NAME)];
+const NOT_CONFIGURED = "FOUNDRY_ENDPOINT is not configured on the server";
 
 const LOOPBACK = ["127.0.0.1", "localhost", "::1"].includes(HOST);
 const ALLOWED_HOSTS = new Set([`127.0.0.1:${PORT}`, `localhost:${PORT}`, `[::1]:${PORT}`]);
@@ -120,7 +116,7 @@ function isTrustedRequest(req) {
 async function handleDecision(name, route, req, res) {
   if (req.method !== "POST") return sendJson(res, 405, { error: "Method not allowed" });
   if (!isTrustedRequest(req)) return sendJson(res, 403, { error: "Forbidden origin" });
-  if (!decisions) return sendJson(res, 503, { error: "OPENAI_API_KEY is not configured on the server" });
+  if (!decisions) return sendJson(res, 503, { error: NOT_CONFIGURED });
   if (inFlight >= MAX_IN_FLIGHT) return sendJson(res, 429, { error: "Too many decisions in flight" });
 
   let request;
@@ -162,11 +158,10 @@ async function handleDuel(req, res) {
   if (req.method === "GET") {
     return sendJson(res, 200, {
       configured: Boolean(decisions),
-      contenders: DUEL_CONTENDERS.map(({ id, api, model, reasoning, label, short, detail }) => ({
+      contenders: DUEL_CONTENDERS.map(({ id, mode, model, label, short, detail }) => ({
         id,
-        api,
+        mode,
         model,
-        reasoning,
         label,
         short,
         detail,
@@ -176,7 +171,7 @@ async function handleDuel(req, res) {
   }
   if (req.method !== "POST") return sendJson(res, 405, { error: "Method not allowed" });
   if (!isTrustedRequest(req)) return sendJson(res, 403, { error: "Forbidden origin" });
-  if (!decisions) return sendJson(res, 503, { error: "OPENAI_API_KEY is not configured on the server" });
+  if (!decisions) return sendJson(res, 503, { error: NOT_CONFIGURED });
   if (inFlight >= MAX_IN_FLIGHT) return sendJson(res, 429, { error: "Too many requests in flight" });
 
   let body;
@@ -194,7 +189,7 @@ async function handleDuel(req, res) {
 
   inFlight++;
   try {
-    const result = await runContender({ contender, scenario, decisions, responses });
+    const result = await runContender({ contender, scenario, decisions });
     if (VERBOSE) console.log(`[duel] ${contender.id} #${scenario} ${result.latencyMs}ms ${JSON.stringify(result.answer)}`);
     return sendJson(res, 200, result);
   } catch (err) {
@@ -251,17 +246,17 @@ server.listen(PORT, HOST, () => {
   const where = `http://${HOST === "0.0.0.0" ? "localhost" : HOST}:${PORT}`;
   console.log(`LUNA GP is running at ${where}`);
   if (decisions) {
-    console.log(`Decisions API: enabled (model ${MODEL}, key from ${keySource})`);
+    console.log(`Decisions: ${MODEL} at ${foundry.endpoint} (auth: ${keySource})`);
     console.log(`Speed duel: ${where}/duel.html`);
   } else {
-    console.log("Decisions API: OPENAI_API_KEY not found - rivals will fall back to offline heuristics.");
+    console.log("Decisions: FOUNDRY_ENDPOINT not set - rivals will fall back to offline heuristics.");
   }
 });
 
 const summary = setInterval(() => {
   if (!stats.calls && !stats.errors) return;
   const avg = stats.calls ? Math.round(stats.latencyMs / stats.calls) : 0;
-  const cost = (stats.inputTokens / 1e6) * 0.1;
+  const cost = (stats.inputTokens / 1e6) * 0.04;
   console.log(
     `[decisions] ${stats.calls} calls, ${stats.errors} errors, avg ${avg} ms, ${stats.inputTokens} input tokens (~$${cost.toFixed(4)})`,
   );

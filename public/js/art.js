@@ -507,15 +507,15 @@ export function createArt() {
     ),
     billboard_decisions: drawBillboard(
       [
-        { text: "OPENAI", size: 30, color: "#bdf2ff", y: 62 },
-        { text: "DECISIONS", size: 76, color: "#3dd6ff", y: 128 },
-        { text: "API", size: 30, color: "#bdf2ff", y: 178 },
+        { text: "MICROSOFT", size: 30, color: "#bdf2ff", y: 62 },
+        { text: "DECISION", size: 76, color: "#3dd6ff", y: 128 },
+        { text: "1", size: 30, color: "#bdf2ff", y: 178 },
       ],
       "#3dd6ff",
     ),
     billboard_luna6: drawBillboard(
       [
-        { text: "gpt-6-luna", size: 64, color: "#ff7ad9", y: 98 },
+        { text: "Foundry", size: 64, color: "#ff7ad9", y: 98 },
         { text: "typed answers at race pace", size: 24, color: "#ffd6f2", y: 158 },
       ],
       "#ff7ad9",
@@ -524,7 +524,7 @@ export function createArt() {
       [
         { text: "choice", size: 44, color: "#9be564", y: 62 },
         { text: "score", size: 44, color: "#ffd166", y: 112 },
-        { text: "predicate", size: 44, color: "#3dd6ff", y: 162 },
+        { text: "noul", size: 44, color: "#3dd6ff", y: 162 },
       ],
       "#9be564",
     ),

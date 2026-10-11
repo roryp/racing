@@ -1,33 +1,87 @@
 # LUNA GP
 
-A pseudo-3D night-time arcade racer in which every rival driver, the race stewards and the post-race debrief are powered by the
-[OpenAI Decisions API](https://developers.openai.com/api/docs/guides/decisions) (`POST /v1/decisions`, model `gpt-6-luna`).
+A pseudo-3D night-time arcade racer in which every rival driver, the race stewards and the post-race debrief are powered by
+[Microsoft-Decision-1](https://ai.azure.com/catalog/models/Microsoft-Decision-1) on Microsoft Foundry
+(`POST <foundry-endpoint>/providers/microsoft/v1/systemone`).
 
-You drive. The game engine handles physics. The Decisions API makes the rivals' tactical calls.
+You drive. The game engine handles physics. Microsoft-Decision-1 makes the rivals' tactical calls: it answers typed
+questions (`choice`, `score`, `noul`) with probabilities instead of generating text.
 
-Want to see how fast it is? The **Speed Duel** races the Decisions API against the regular Responses API, live, on the
-same questions. See [Speed duel](#speed-duel-decisions-api-vs-responses-api).
+Want to see how fast it is? The **Speed Duel** races two ways of asking the model the same questions, live. See
+[Speed duel](#speed-duel).
 
 ## Race screen
 
-The race view combines the arcade driving HUD with live Decisions API telemetry. The highlighted areas show where to
+The race view combines the arcade driving HUD with live decision telemetry. The highlighted areas show where to
 find race progress, driving information, rival decisions and Race Control rulings.
 
 ![Annotated LUNA GP race screen](docs/images/race-overview.png)
 
-## Run it
+## Live deployment
 
-Requirements: Node.js 20+ and an `OPENAI_API_KEY` environment variable. There are no dependencies, so there's nothing to install.
+The game runs on Azure App Service and talks to the model with its **system-assigned managed identity** (no keys):
+
+| Resource | Name | Region |
+| --- | --- | --- |
+| Web app (Linux, Node 22, B1) | `luna-gp-45684` → <https://luna-gp-45684.azurewebsites.net> | Central US |
+| Foundry resource | `aoai-dxvm6vcbss5dg` (resource group `rg-genai-java`) | East US 2 |
+| Model deployment | `decision-1-dz`: Microsoft-Decision-1 v1, **DataZoneStandard** (US), 500 requests/min | US data zone |
+| Role assignment | web app identity → **Cognitive Services User** on the Foundry resource | – |
+
+The web app and the model deployment are in the same US data zone. App Service had no quota in East US 2 in this
+subscription, so the app runs in Central US; requests stay inside the US data zone either way.
+
+**Throughput:** one deployment allows up to 500 requests/min (the subscription's DataZoneStandard quota). A race makes about
+300 rival calls a minute, so one deployment supports one or two simultaneous races. For more, add deployments in other
+quota pools (GlobalStandard, or another data zone) or request a quota increase in the Foundry portal.
+
+> The site is public and unauthenticated: anyone with the URL can start races, which uses your model quota and is billed to
+> the subscription. The server caps work at 16 decisions in flight. Stop the app (`az webapp stop -g rg-genai-java -n luna-gp-45684`) when you're not using it.
+
+### Deploy it yourself
 
 ```powershell
+$rg = "rg-genai-java"; $app = "luna-gp-<unique>"; $foundry = "aoai-dxvm6vcbss5dg"
+
+# 1. Model: Microsoft-Decision-1 (deployment names can't contain "Microsoft")
+az cognitiveservices account deployment create -g $rg -n $foundry --deployment-name decision-1-dz `
+  --model-name Microsoft-Decision-1 --model-version 1 --model-format Microsoft `
+  --sku-name DataZoneStandard --sku-capacity 500
+
+# 2. Web app with a system-assigned managed identity
+az appservice plan create -g $rg -n asp-luna-gp-centralus -l centralus --is-linux --sku B1
+az webapp create -g $rg -p asp-luna-gp-centralus -n $app --runtime "NODE:22-lts" --assign-identity "[system]"
+az webapp config set -g $rg -n $app --startup-file "node server.js" --always-on true --min-tls-version 1.2 --ftps-state Disabled
+az webapp update -g $rg -n $app --https-only true
+
+# 3. Let the identity call the model
+$principal = az webapp identity show -g $rg -n $app --query principalId -o tsv
+$scope = az cognitiveservices account show -g $rg -n $foundry --query id -o tsv
+az role assignment create --assignee-object-id $principal --assignee-principal-type ServicePrincipal `
+  --role "Cognitive Services User" --scope $scope
+
+# 4. Settings (no secrets) and code
+az webapp config appsettings set -g $rg -n $app --settings `
+  FOUNDRY_ENDPOINT=https://$foundry.cognitiveservices.azure.com FOUNDRY_DEPLOYMENT=decision-1-dz HOST=0.0.0.0
+# zip server.js, package.json, lib/ and public/ (no dependencies to install), then:
+az webapp deploy -g $rg -n $app --src-path luna-gp.zip --type zip
+```
+
+## Run it locally
+
+Requirements: Node.js 20+, the Azure CLI signed in (`az login`) with access to the Foundry resource, and
+`FOUNDRY_ENDPOINT`. There are no npm dependencies, so there's nothing to install.
+
+```powershell
+$env:FOUNDRY_ENDPOINT = "https://aoai-dxvm6vcbss5dg.cognitiveservices.azure.com"
 npm start
 ```
 
 Open <http://127.0.0.1:3000> and press **Start race**. For the speed test, open <http://127.0.0.1:3000/duel.html>.
 
-The API key stays on the server; the browser only talks to the local server. On Windows, the server also reads
-`OPENAI_API_KEY` from your saved user/system environment variables, so it works in terminals that were opened before
-the key was set. Without a key, the game still runs and the rivals use offline heuristics.
+Credentials stay on the server; the browser only talks to the local server. On Windows, the server also reads the
+`FOUNDRY_*` variables from your saved user/system environment. Without `FOUNDRY_ENDPOINT`, the game still runs and the
+rivals use offline heuristics.
 
 ## Controls
 
@@ -44,15 +98,15 @@ the key was set. Without a key, the game still runs and the rivals use offline h
 
 Stay on the road: trees, lamps and billboards stop you dead.
 
-## How the Decisions API is used
+## How Microsoft-Decision-1 is used
 
 The game asks the model **typed questions** about the current race situation and acts on the typed answers:
 
 | Who | When | Questions | What the game does with the answers |
 | --- | --- | --- | --- |
-| **Each rival driver** (5 cars) | About every 0.65–1.05 s in traffic and every 1.4–1.8 s otherwise | `choice` **maneuver**: racing line, overtake left/right, slipstream, defend, back off<br>`score` **pace**: Conserve → Race → Push → Flat out<br>`predicate` **nitro**: fire now? | Steers toward the chosen line, sets target speed from the pace score, fires nitro when the probability clears the driver's personality threshold |
-| **Race Control** | When you make contact with a rival | `choice` **responsible**: player / rival / racing incident<br>`score` **severity**: 0 light touch → 1 careless → 2 dangerous<br>Plus the onboard camera frame as an `input_image` | Penalizes the responsible driver when the model is ≥ 60% sure and severity is ≥ 0.8: +2 s, or +5 s when severity is ≥ 1.5 |
-| **Debrief** | After the race | `score` **rating**: Rookie → Champion<br>`choice` **driver of the day**<br>`predicate` **clean racer?** | Shown on the results screen |
+| **Each rival driver** (5 cars) | About every 0.65–1.05 s in traffic and every 1.4–1.8 s otherwise | `choice` **maneuver**: racing line, overtake left/right, slipstream, defend, back off<br>`score` **pace**: Conserve → Race → Push → Flat out<br>`noul` **nitro**: fire now? | Steers toward the chosen line, sets target speed from the pace score, fires nitro when the probability clears the driver's personality threshold |
+| **Race Control** | When you make contact with a rival | `choice` **responsible**: player / rival / racing incident<br>`score` **severity**: 0 light touch → 1 careless → 2 dangerous | Penalizes the responsible driver when the model is ≥ 60% sure and severity is ≥ 0.8: +2 s, or +5 s when severity is ≥ 1.5 |
+| **Debrief** | After the race | `score` **rating**: Rookie → Champion<br>`choice` **driver of the day**<br>`noul` **clean racer?** | Shown on the results screen |
 
 A rival request describes the situation from that driver's point of view in plain text, for example:
 
@@ -76,123 +130,88 @@ If the API fails or is unreachable, the affected rivals switch to an offline heu
 `FALLBACK`/`LOCAL`, and the race carries on. The game reconnects automatically once the API responds again. You can also
 choose **Offline heuristics** in the menu.
 
-**Cost:** `/v1/decisions` with `gpt-6-luna` charges only for input tokens ($0.10 per 1M). A rival decision is about 900 tokens,
-so racing costs roughly 2 cents per minute, or about 5 cents for a 3-lap race.
+**Cost:** Microsoft-Decision-1 is billed per token ($0.04 per 1M tokens). A rival decision is about 600 tokens and a
+race makes roughly 250 rival calls a minute, so racing costs about half a cent per minute, or about 2 cents for a 3-lap race.
 
-## Speed duel: Decisions API vs Responses API
+The model is text-only, so Race Control judges contacts from the telemetry alone (no camera frame is sent).
 
-The Decisions API is built for fast typed answers. The speed duel lets you see the difference live, so it's good for
-showing friends. Two cars line up on a drag strip:
+## Speed duel
 
-- **Cyan car:** the Decisions API (`POST /v1/decisions`, `gpt-6-luna`).
-- **Orange car:** the regular Responses API (`POST /v1/responses`), with the opponent you pick.
+Two cars race on a drag strip. Both ask **Microsoft-Decision-1** the same race situations and the same three
+rival-driver questions: a `choice` (which maneuver?), a `score` (how hard to push?) and a `noul` (fire nitro?). Each
+answer moves that car one step toward the flag.
 
-Both cars get the same race situations and the same three rival-driver questions: a `choice` (which maneuver?), a
-`score` (how hard to push?) and a `predicate` (fire nitro?). Each answer moves that car one step toward the flag.
+- **Cyan car:** one call that asks all three questions together.
+- **Orange car:** the opponent you pick:
+
+| Opponent | How it asks |
+| --- | --- |
+| 3 parallel calls | One question per call, all three sent at once; the decision is done when the slowest answers |
+| 3 sequential calls | One question per call, each sent after the previous one answers |
 
 ![Annotated LUNA GP Speed Duel screen](docs/images/duel-overview.png)
 
-### Run the duel
+1. Open `/duel.html`, or select **⚡ Speed duel** on the game's main menu.
+2. Pick an opponent and how many race decisions each car must answer (5, 10 or 20).
+3. Press **Start duel** (or Enter).
 
-1. Start the game server: `npm start`.
-2. Open <http://127.0.0.1:3000/duel.html>, or select **⚡ Speed duel** on the game's main menu.
-3. Pick an opponent and how many race decisions each car must answer (5, 10 or 20).
-4. Press **Start duel** (or Enter).
-
-After the 3 red lights, both cars start calling their API at the same time, one decision after another. Each answer's
-latency pops up above its car, and the cards below show live stats. At the finish, the result banner shows how many
-times faster the winner was. Below it you can:
-
-- **Copy result** to paste the numbers into a chat.
-- **Show every answer** to compare both APIs' answers and timings for each race situation.
-
-Press **Stop** to end a duel early, for example against the slow default-reasoning opponent. You still get a
-per-decision comparison.
-
-| Opponent | Model | Settings |
-| --- | --- | --- |
-| Responses API · gpt-6-luna (no reasoning) | `gpt-6-luna` | Same model as the Decisions API, at its fastest setting: `reasoning.effort: "none"` |
-| Responses API · gpt-5.4-nano (no reasoning) | `gpt-5.4-nano` | The fastest small model we tested, with `reasoning.effort: "none"` |
-| Responses API · gpt-6-luna (default reasoning) | `gpt-6-luna` | Same model with its default reasoning |
-
-### How it's kept fair
-
-- **Same work:** every call gets the same evidence text and the same questions, with the same options, levels and
-  descriptions. The Responses API answers through Structured Outputs: a strict JSON schema with an enum for the
-  maneuver, an integer level for pace and a boolean for nitro (`store: false`).
-- **Same clock:** the game server times every call, from sending the request until the last byte of the answer
-  arrives. Your browser's connection to the game server doesn't count.
-- **Warm connections:** one untimed warm-up call per car runs during the countdown, so HTTPS setup doesn't count.
-- **Side by side:** both cars race at the same time, each making one call at a time, so they share the same network
-  conditions.
-
-The Decisions API also returns probabilities with every answer, such as p = 0.84 for the chosen maneuver. With
-Structured Outputs, the Responses API returns only the values it picked.
+The game server times every decision, from sending the first request until the last byte of the last answer arrives,
+so your browser's connection doesn't count. One untimed warm-up call per car runs during the countdown. At the finish,
+you can copy the result or show every answer side by side.
 
 ### Benchmark from the command line
 
-For more samples, `npm run bench` asks every contender about all 10 race situations. It shuffles the order for each
-situation so network hiccups affect everyone equally, then prints a summary table.
-
 ```powershell
-npm run bench                                          # vs gpt-6-luna and gpt-5.4-nano, both with no reasoning
-npm run bench -- --rounds 3                            # 3 samples per race situation
-npm run bench -- --opponents responses-luna-default    # vs gpt-6-luna with default reasoning
-npm run bench -- --model gpt-5.4-mini --reasoning none # add any model your key can use
-npm run bench -- --json                                # machine-readable output
+$env:FOUNDRY_ENDPOINT = "https://aoai-dxvm6vcbss5dg.cognitiveservices.azure.com"
+npm run bench                               # 1 call vs 3 parallel and 3 sequential calls
+npm run bench -- --rounds 3                 # 3 samples per race situation
+npm run bench -- --opponents split-parallel
+npm run bench -- --json                     # machine-readable output
 ```
-
-If your shell doesn't pass options through `npm run bench --`, run `node bench.js --rounds 3` instead. The table columns are:
-
-- **median / p90 / fastest:** full round trip from your machine.
-- **OpenAI time:** the median `openai-processing-ms` response header, which shows the time spent inside OpenAI.
-- **same move:** how often the Responses API picked the Decisions API's top maneuver.
 
 ### Our results
 
-Measured on 8 October 2026 from the development machine with `npm run bench`. Your numbers depend on your network
-distance to OpenAI and on current load.
+Measured on 11 October 2026 against `decision-1-dz`:
 
-| Opponent on the Responses API | Decisions API (median) | Opponent (median) | Inside OpenAI (median) | Same move | Decisions API was |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| `gpt-6-luna`, no reasoning (20 calls each) | 364 ms | 1.43 s | 152 ms vs 1.04 s | 18/20 | **3.9× faster** |
-| `gpt-5.4-nano`, no reasoning (20 calls each) | 364 ms | 987 ms | 152 ms vs 618 ms | 16/20 | **2.7× faster** |
-| `gpt-6-luna`, default reasoning (10 calls each) | 318 ms | 4.07 s | 124 ms vs 3.70 s | 10/10 | **12.8× faster** |
+| Setup | From a dev machine in Europe (median) | From the Azure web app (median, duel) |
+| --- | ---: | ---: |
+| 1 call, 3 questions | 392 ms | 235 ms |
+| 3 parallel calls | 366 ms | 216 ms |
+| 3 sequential calls | 1.01 s | – |
 
-The Decisions API won even though its requests carried more input tokens (861 vs 665). It produces no output tokens,
-while the Responses API generated 24 output tokens per answer, or 183 with default reasoning.
-
-In the browser duel, the Decisions API answered 10 race decisions in **3.86 s**. The Responses API with `gpt-6-luna`
-and no reasoning took **16.54 s**, so the Decisions API was **4.3×** faster.
-
-A 10-decision duel makes 22 API calls: 10 per car, plus 1 warm-up each. Decisions API calls cost about $0.0001 each.
-Responses API calls are billed at that model's normal input and output token rates.
+Parallel single-question calls are about as fast as one batched call but use ~65% more input tokens (956 vs 583), because
+the race situation is sent three times. Sequential calls are about 2.6× slower. All setups picked the same maneuver in
+9–10 of 10 situations.
 
 ## Configuration
 
-| Variable          | Default                     | Purpose                                              |
-| ----------------- | --------------------------- | ---------------------------------------------------- |
-| `OPENAI_API_KEY`  | –                           | Your API key (required for AI rivals)                |
-| `PORT`            | `3000`                      | HTTP port                                            |
-| `HOST`            | `127.0.0.1`                 | Bind address                                         |
-| `DECISIONS_MODEL` | `gpt-6-luna`                | Model sent to `/v1/decisions`                        |
-| `OPENAI_BASE_URL` | `https://api.openai.com/v1` | API base URL                                         |
-| `LOG_DECISIONS`   | unset                       | Set to `1` to log every decision and duel call       |
+| Variable             | Default         | Purpose                                                                 |
+| -------------------- | --------------- | ----------------------------------------------------------------------- |
+| `FOUNDRY_ENDPOINT`   | –               | Foundry resource endpoint (required for AI rivals)                      |
+| `FOUNDRY_DEPLOYMENT` | `decision-1-dz` | Microsoft-Decision-1 deployment name                                    |
+| `FOUNDRY_API_KEY`    | unset           | Optional key auth; leave unset to use Microsoft Entra ID                |
+| `PORT`               | `3000`          | HTTP port (App Service sets this)                                       |
+| `HOST`               | `127.0.0.1`     | Bind address (`0.0.0.0` on App Service)                                 |
+| `LOG_DECISIONS`      | unset           | Set to `1` to log every decision and duel call                          |
 
-The server binds to localhost. It rejects cross-origin requests and unexpected `Host` headers, and it validates and clamps
-every field before building a request. That stops other web pages from spending your key or injecting their own questions.
+**Authentication** (first match wins): `FOUNDRY_API_KEY` → the App Service **managed identity** (detected from
+`IDENTITY_ENDPOINT`/`IDENTITY_HEADER`) → the local **Azure CLI** login. Entra ID tokens are cached and refreshed five
+minutes before they expire, and the server fetches the first token at startup.
+
+The server rejects cross-origin requests (and, when bound to localhost, unexpected `Host` headers), and it validates and
+clamps every field before building a request, so other web pages can't spend your quota or inject their own questions.
 
 ## Project layout
 
 ```text
 server.js             Static files + /api/rival, /api/steward, /api/debrief, /api/duel, /api/status
 bench.js              Command-line speed test (npm run bench)
-lib/openai.js         Shared fetch helper: timeouts, errors, round-trip and openai-processing-ms timing
-lib/decisions.js      Minimal /v1/decisions client and answer helpers
-lib/responses.js      Minimal /v1/responses client for Structured Outputs (the duel's baseline)
-lib/benchmark.js      Duel race situations and opponents; translates a Decisions request into a Responses request
+lib/foundry.js        Foundry config and auth: API key, managed identity, or Azure CLI token
+lib/decisions.js      Microsoft-Decision-1 client; translates questions/answers to and from the systemone format
+lib/openai.js         Shared fetch helper: timeouts, errors and round-trip timing
+lib/benchmark.js      Duel race situations and contenders (batched, parallel, sequential)
 lib/prompts.js        Builds the evidence text and typed questions; validates all browser input
-lib/env.js            Finds OPENAI_API_KEY (process env, then the saved Windows environment)
+lib/env.js            Reads variables from the process env, then the saved Windows environment
 public/js/race.js     Physics, rival driving, contacts, laps, standings and API payloads
 public/js/rivals.js   Per-rival decision scheduling, nitro thresholds, offline fallback
 public/js/control.js  Race Control reviews and penalties
@@ -208,6 +227,6 @@ test/                 node:test suites
 npm test
 ```
 
-The tests cover the API clients, with `fetch` mocked; the prompt builders and input validation; the duel's
-Decisions-to-Responses request translation and latency statistics; and a headless race simulation. The simulation checks
-that the payloads the game sends are accepted by the server. The tests make no network calls.
+The tests cover the Foundry client (request/answer translation, with `fetch` mocked), Entra ID / managed identity token
+handling, the prompt builders and input validation, the duel contenders and latency statistics, and a headless race
+simulation that checks the payloads the game sends are accepted by the server. The tests make no network calls.

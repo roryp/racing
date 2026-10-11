@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>LUNA GP · racing with the OpenAI Decisions API</title>
+    <title>LUNA GP · racing with Microsoft-Decision-1</title>
     <link
       rel="icon"
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='28' fill='%23fbf1e1'/%3E%3Ccircle cx='44' cy='26' r='24' fill='%232c1a52'/%3E%3C/svg%3E"
@@ -45,16 +45,15 @@
             <div class="panel">
               <h1>LUNA <span>GP</span></h1>
               <p class="tagline">
-                Every rival driver thinks with the <b>OpenAI Decisions API</b>. Each second, they ask
-                <code>gpt-6-luna</code> a <em>choice</em> (maneuver), a <em>score</em> (pace), and a
-                <em>predicate</em> (fire nitro?).
+                Every rival driver thinks with <b>Microsoft-Decision-1</b> on Microsoft Foundry. Each second, they ask
+                it a <em>choice</em> (maneuver), a <em>score</em> (pace), and a <em>noul</em> (fire nitro?).
               </p>
               <div id="menu-status" class="status">Checking the Decisions API…</div>
               <div class="options">
                 <label
                   >Rival AI
                   <select id="opt-brain">
-                    <option value="api">OpenAI Decisions API</option>
+                    <option value="api">Microsoft-Decision-1 (Foundry)</option>
                     <option value="local">Offline heuristics</option>
                   </select>
                 </label>
@@ -78,7 +77,7 @@
                 <label class="check"><input type="checkbox" id="opt-stewards" /> AI Race Control (penalties)</label>
               </div>
               <button id="btn-start" class="primary">Start race <kbd>Enter</kbd></button>
-              <a class="duel-link" href="/duel.html">⚡ Speed duel: Decisions API vs Responses API →</a>
+              <a class="duel-link" href="/duel.html">⚡ Speed duel: 1 call vs split calls →</a>
               <div class="controls">
                 <span><kbd>←</kbd><kbd>→</kbd> steer</span>
                 <span><kbd>↑</kbd> throttle</span>
@@ -131,7 +130,7 @@
         <header>
           <div>
             <h2>Pit Wall</h2>
-            <div class="sub">Live answers from <b>POST /v1/decisions</b></div>
+            <div class="sub">Live answers from <b>Microsoft-Decision-1</b> on Foundry</div>
           </div>
           <div id="api-status" class="pill">● checking…</div>
         </header>
@@ -142,14 +141,14 @@
           <div><label>cost</label><span id="stat-cost">$0.0000</span></div>
         </div>
         <div class="qtypes">
-          <span><b>choice</b> → maneuver</span><span><b>score</b> → pace</span><span><b>predicate</b> → nitro</span>
+          <span><b>choice</b> → maneuver</span><span><b>score</b> → pace</span><span><b>noul</b> → nitro</span>
         </div>
         <div id="legend" class="legend"></div>
         <div id="rival-cards" class="cards">
           <div class="muted">Start a race to see each rival's decisions stream in.</div>
         </div>
         <section class="rc">
-          <h3>Race Control <small>choice + score, with onboard image</small></h3>
+          <h3>Race Control <small>choice + score, from telemetry</small></h3>
           <ol id="rc-log"></ol>
         </section>
       </aside>

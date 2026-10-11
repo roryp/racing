@@ -1,6 +1,6 @@
-// Speed Duel: two cars, two OpenAI endpoints. Each time an API answers a
-// rival-driver decision about a race situation (a choice, a score and a
-// predicate), its car moves one step closer to the flag. The game server times
+// Speed Duel: two cars, two ways of asking Microsoft-Decision-1. Each time a setup
+// answers a rival-driver decision about a race situation (a choice, a score and a
+// noul), its car moves one step closer to the flag. The game server times
 // every call, so the browser's own connection doesn't count.
 
 import { createArt, shade } from "./art.js";
@@ -21,7 +21,7 @@ const CAR_LENGTH = 170;
 const FONT = 'system-ui, "Segoe UI", sans-serif';
 const OPPONENT_KEY = "lunagp.duel.opponent";
 
-// Lane 0 (near, bottom) is the Decisions API; lane 1 (far, top) is the opponent.
+// Lane 0 (near, bottom) is the batched single call; lane 1 (far, top) is the opponent.
 const LANE_STYLES = [
   { color: "#3dd6ff", accent: "#0b2747", baseY: 432, scale: 1 },
   { color: "#ffb347", accent: "#3a2400", baseY: 334, scale: 0.84 },
@@ -102,7 +102,7 @@ function makeLane(contender, style) {
 function resetLanes() {
   state.rounds = Number($("opt-rounds").value);
   trackLayer = drawTrack(state.rounds);
-  const decisions = state.config.contenders.find((c) => c.api === "decisions");
+  const decisions = state.config.contenders.find((c) => c.id === "decisions");
   const opponent = state.config.contenders.find((c) => c.id === $("opt-opponent").value);
   state.lanes = [makeLane(decisions, LANE_STYLES[0]), makeLane(opponent, LANE_STYLES[1])];
   state.verdict = null;
@@ -198,14 +198,10 @@ function describe(result) {
   if (!result) return "–";
   const { answer } = result;
   const move = MANEUVERS[answer.maneuver]?.label ?? answer.maneuver ?? "?";
-  if (result.api === "decisions") {
-    const p = answer.maneuverP === null ? "" : ` (${answer.maneuverP.toFixed(2)})`;
-    const pace = answer.pace === null ? "–" : answer.pace.toFixed(1);
-    const nitro = answer.nitro === null ? "–" : `p ${answer.nitro.toFixed(2)}`;
-    return `${move}${p} · pace ${pace} · nitro ${nitro}`;
-  }
-  const nitro = answer.nitro === null ? "–" : answer.nitro ? "yes" : "no";
-  return `${move} · pace ${answer.pace ?? "–"} · nitro ${nitro}`;
+  const p = answer.maneuverP === null ? "" : ` (${answer.maneuverP.toFixed(2)})`;
+  const pace = answer.pace === null ? "–" : answer.pace.toFixed(1);
+  const nitro = answer.nitro === null ? "–" : `p ${answer.nitro.toFixed(2)}`;
+  return `${move}${p} · pace ${pace} · nitro ${nitro}`;
 }
 
 function showVerdict(stopped) {
@@ -213,8 +209,6 @@ function showVerdict(stopped) {
   const n = state.rounds;
   const latA = summarize(a.results.map((r) => r.latencyMs));
   const latB = summarize(b.results.map((r) => r.latencyMs));
-  const procA = summarize(a.results.map((r) => r.processingMs));
-  const procB = summarize(b.results.map((r) => r.processingMs));
   let same = 0;
   let compared = 0;
   for (let i = 0; i < Math.min(a.results.length, b.results.length); i++) {
@@ -225,7 +219,7 @@ function showVerdict(stopped) {
   const factor = complete ? b.finishedAt / a.finishedAt : latA.p50 && latB.p50 ? latB.p50 / latA.p50 : null;
   const decisionsAhead = factor === null || factor >= 1;
   const times = factor === null ? null : (decisionsAhead ? factor : 1 / factor).toFixed(1);
-  const winner = decisionsAhead ? "Decisions API" : "Responses API";
+  const winner = decisionsAhead ? a.contender.short : b.contender.short;
 
   let headline;
   if (a.error || b.error) {
@@ -234,8 +228,8 @@ function showVerdict(stopped) {
     state.verdict = { top: "RACE STOPPED", big: "ERROR", bottom: failed.error.slice(0, 90), color: "#f87171" };
   } else if (complete) {
     headline = decisionsAhead
-      ? `<b>${times}× faster.</b> The Decisions API answered ${n} race decisions in ${formatClock(a.finishedAt)}. The Responses API needed ${formatClock(b.finishedAt)}.`
-      : `<b>${times}× faster.</b> The Responses API won this one: ${formatClock(b.finishedAt)} vs ${formatClock(a.finishedAt)}.`;
+      ? `<b>${times}× faster.</b> ${escapeHtml(a.contender.short)} answered ${n} race decisions in ${formatClock(a.finishedAt)}. ${escapeHtml(b.contender.short)} needed ${formatClock(b.finishedAt)}.`
+      : `<b>${times}× faster.</b> ${escapeHtml(b.contender.short)} won this one: ${formatClock(b.finishedAt)} vs ${formatClock(a.finishedAt)}.`;
     state.verdict = {
       top: winner.toUpperCase(),
       big: `${times}× FASTER`,
@@ -248,7 +242,7 @@ function showVerdict(stopped) {
   } else {
     headline =
       `Stopped at ${a.results.length} vs ${b.results.length} answers.` +
-      (times ? ` Per decision, the ${winner} was <b>${times}× faster</b> (median).` : "");
+      (times ? ` Per decision, ${escapeHtml(winner)} was <b>${times}× faster</b> (median).` : "");
     state.verdict = {
       top: stopped ? "STOPPED" : "FINISHED",
       big: times ? `${times}× FASTER` : "–",
@@ -260,16 +254,15 @@ function showVerdict(stopped) {
   $("result-headline").innerHTML = headline;
   $("result-sub").textContent =
     `Median per decision: ${formatMs(latA.p50)} vs ${formatMs(latB.p50)} · ` +
-    `time inside OpenAI (median): ${formatMs(procA.p50)} vs ${formatMs(procB.p50)} · ` +
     `same maneuver in ${same} of ${compared} situations`;
 
   const total = (lane) => (lane.finishedAt !== null ? `${formatClock(lane.finishedAt)} total` : `${lane.results.length}/${n} answered`);
   const share = [
-    `⚡ LUNA GP speed duel: ${n} race decisions, each a choice + score + predicate`,
+    `⚡ LUNA GP speed duel: ${n} race decisions, each a choice + score + noul`,
     `${a.contender.label}: ${total(a)}, median ${formatMs(latA.p50)} per decision`,
     `${b.contender.label}: ${total(b)}, median ${formatMs(latB.p50)} per decision`,
   ];
-  if (times) share.push(`The ${winner} was ${times}× faster${complete ? "" : " per decision"}.`);
+  if (times) share.push(`${winner} was ${times}× faster${complete ? "" : " per decision"}.`);
   $("share").textContent = share.join("\n");
 
   $("th-a").textContent = a.contender.short;
@@ -421,13 +414,12 @@ async function init() {
   }
   if (!state.config.configured) {
     state.phase = "unavailable";
-    setStatus("warn", "⚠ OPENAI_API_KEY isn't set on the game server, so there's nothing to race.");
+    setStatus("warn", "⚠ FOUNDRY_ENDPOINT isn't set on the game server, so there's nothing to race.");
     syncControls();
     return;
   }
-
   const select = $("opt-opponent");
-  for (const contender of state.config.contenders.filter((c) => c.api === "responses")) {
+  for (const contender of state.config.contenders.filter((c) => c.id !== "decisions")) {
     const option = document.createElement("option");
     option.value = contender.id;
     option.textContent = contender.label;
@@ -436,7 +428,7 @@ async function init() {
   const saved = localStorage.getItem(OPPONENT_KEY);
   if (saved && [...select.options].some((o) => o.value === saved)) select.value = saved;
 
-  setStatus("ok", "✅ Ready. Both cars call OpenAI through the game server, using your API key.");
+  setStatus("ok", "✅ Ready. Both cars call Microsoft-Decision-1 on Foundry through the game server.");
   state.phase = "idle";
   resetLanes();
   syncControls();

@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Speed Duel · Decisions API vs Responses API · LUNA GP</title>
+    <title>Speed Duel · Microsoft-Decision-1 · LUNA GP</title>
     <link
       rel="icon"
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='28' fill='%23fbf1e1'/%3E%3Ccircle cx='44' cy='26' r='24' fill='%232c1a52'/%3E%3C/svg%3E"
@@ -17,9 +17,10 @@
         <a class="back" href="/">← Back to the race</a>
         <h1>SPEED <span>DUEL</span></h1>
         <p class="tagline">
-          Two OpenAI endpoints get the same race situations and the same three questions: a <em>choice</em> (which
-          maneuver?), a <em>score</em> (how hard to push?) and a <em>predicate</em> (fire nitro?). Every answer moves
-          that API's car one step. First to the flag wins.
+          Two ways of asking <b>Microsoft-Decision-1</b> the same race situations and the same three questions: a
+          <em>choice</em> (which maneuver?), a <em>score</em> (how hard to push?) and a <em>noul</em> (fire nitro?).
+          One car asks all three in a single call; the other splits them into separate calls. Every answer moves that
+          car one step. First to the flag wins.
         </p>
       </header>
 
@@ -41,7 +42,7 @@
       <div id="duel-status" class="status">Connecting to the game server…</div>
 
       <div class="strip-wrap">
-        <canvas id="strip" aria-label="Drag race between the Decisions API and the Responses API"></canvas>
+        <canvas id="strip" aria-label="Drag race between two ways of calling Microsoft-Decision-1"></canvas>
       </div>
 
       <section id="lane-cards" class="lanes"></section>
@@ -61,9 +62,9 @@
               <tr>
                 <th>#</th>
                 <th>Race situation</th>
-                <th id="th-a">Decisions API</th>
+                <th id="th-a">1 call · 3 questions</th>
                 <th>time</th>
-                <th id="th-b">Responses API</th>
+                <th id="th-b">Opponent</th>
                 <th>time</th>
                 <th>Same move</th>
               </tr>
@@ -74,10 +75,10 @@
       </section>
 
       <p class="fineprint">
-        How it's measured: the game server calls OpenAI with your API key and times each request from the moment it's
-        sent until the last byte of the answer arrives, so your browser's own connection doesn't count. Both cars get
-        identical race situations, evidence and questions. The Responses API answers through Structured Outputs (a strict
-        JSON schema) with the reasoning setting shown on its card. Connections are warmed up before the lights go out.
+        How it's measured: the game server calls Microsoft-Decision-1 on Microsoft Foundry and times each decision from
+        the moment the first request is sent until the last byte of the last answer arrives, so your browser's own
+        connection doesn't count. Both cars get identical race situations, evidence and questions. Connections are
+        warmed up before the lights go out.
       </p>
     </main>
     <script type="module" src="/js/duel.js"></script>

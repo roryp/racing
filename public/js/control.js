@@ -1,5 +1,6 @@
-// AI Race Control: reviews player/rival contacts with the Decisions API
-// (choice: who is responsible, score: severity), attaching the onboard frame.
+// AI Race Control: reviews player/rival contacts with Microsoft-Decision-1
+// (choice: who is responsible, score: severity). The model is text-only, so it
+// judges from the telemetry; no onboard frame is sent.
 
 const COOLDOWN_MS = 4000;
 const MIN_RESPONSIBILITY = 0.6;
@@ -27,15 +28,13 @@ export class RaceControl {
     if (now - (this.lastReview.get(incident.rivalId) ?? -Infinity) < COOLDOWN_MS) return;
     this.lastReview.set(incident.rivalId, now);
 
-    // The rival is only on camera when it is ahead of or beside the player.
-    const frame = incident.front === "player" ? null : this.captureFrame();
     const rival = this.race.rivals.find((c) => c.id === incident.rivalId);
     const { rivalId, ...payload } = incident;
 
     this.pending++;
     this.onVerdict?.({ status: "reviewing", incident, rival });
     this.api
-      .steward({ ...payload, frame })
+      .steward(payload)
       .then((verdict) => {
         if (this.stopped) return;
         const responsible = verdict.responsible;
@@ -48,7 +47,7 @@ export class RaceControl {
           target = responsible.choice === "player" ? this.race.player : rival;
           this.race.applyPenalty(target, penalty);
         }
-        this.onVerdict?.({ status: "verdict", incident, rival, verdict, penalty, target, withFrame: Boolean(frame) });
+        this.onVerdict?.({ status: "verdict", incident, rival, verdict, penalty, target, withFrame: false });
       })
       .catch((err) => {
         if (!this.stopped) this.onVerdict?.({ status: "error", incident, rival, error: err.message });

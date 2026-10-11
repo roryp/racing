@@ -1,26 +1,22 @@
-// Command-line speed test: the Decisions API vs the Responses API, on the same
-// race situations with the same typed questions.
+// Command-line speed test: different ways of asking Microsoft-Decision-1 (Foundry) the
+// same race situations with the same typed questions.
 //
-//   npm run bench                                     Decisions vs gpt-6-luna and gpt-5.4-nano on the Responses API
-//   npm run bench -- --rounds 3                       more samples per race situation
-//   npm run bench -- --opponents responses-luna-default
-//   npm run bench -- --model gpt-5.4-mini --reasoning none
-//   npm run bench -- --json                           machine-readable output
+//   npm run bench                         1 batched call vs 3 parallel and 3 sequential single-question calls
+//   npm run bench -- --rounds 3           more samples per race situation
+//   npm run bench -- --opponents split-parallel
+//   npm run bench -- --json               machine-readable output
 
 import { parseArgs } from "node:util";
 import { decisionsContender, OPPONENTS, runContender, SCENARIOS } from "./lib/benchmark.js";
-import { createDecisionsClient, DEFAULT_MODEL } from "./lib/decisions.js";
-import { resolveApiKey } from "./lib/env.js";
-import { createResponsesClient } from "./lib/responses.js";
+import { createDecisionsClient, MODEL_NAME } from "./lib/decisions.js";
+import { foundryAuth, resolveFoundryConfig } from "./lib/foundry.js";
 import { formatMs, summarize } from "./public/js/stats.js";
 
 const USAGE = `Usage: npm run bench -- [options]
 
   --rounds <n>         Times to run each of the ${SCENARIOS.length} race situations (1-10, default 1)
-  --opponents <ids>    Comma-separated Responses API setups to race (default responses-luna,responses-nano)
-                       Available: ${OPPONENTS.map((o) => o.id).join(", ")}
-  --model <name>       Also race this model on the Responses API
-  --reasoning <effort> Reasoning effort for --model, e.g. none or low (omit for the model default)
+  --opponents <ids>    Comma-separated setups to race against the single batched call
+                       Available: ${OPPONENTS.map((o) => o.id).join(", ")} (default: all)
   --json               Print the results as JSON`;
 
 function fail(message) {
@@ -33,9 +29,7 @@ try {
   ({ values: args } = parseArgs({
     options: {
       rounds: { type: "string", default: "1" },
-      opponents: { type: "string", default: "responses-luna,responses-nano" },
-      model: { type: "string" },
-      reasoning: { type: "string" },
+      opponents: { type: "string", default: OPPONENTS.map((o) => o.id).join(",") },
       json: { type: "boolean", default: false },
       help: { type: "boolean", short: "h", default: false },
     },
@@ -57,28 +51,20 @@ for (const id of args.opponents.split(",").map((s) => s.trim()).filter(Boolean))
   if (!opponent) fail(`Unknown opponent "${id}". Available: ${OPPONENTS.map((o) => o.id).join(", ")}`);
   opponents.push(opponent);
 }
-if (args.model) {
-  const effort = args.reasoning ? `reasoning ${args.reasoning}` : "default reasoning";
-  opponents.push({
-    id: `custom-${args.model}`,
-    api: "responses",
-    model: args.model,
-    reasoning: args.reasoning ?? null,
-    label: `Responses API · ${args.model} (${effort})`,
-  });
-}
 if (!opponents.length) fail("Pick at least one opponent.");
 
-const { key } = resolveApiKey();
-if (!key) fail("OPENAI_API_KEY is not set.");
+const foundry = resolveFoundryConfig();
+if (!foundry.endpoint) fail("FOUNDRY_ENDPOINT is not set.");
 
-const model = process.env.DECISIONS_MODEL || DEFAULT_MODEL;
-const baseURL = process.env.OPENAI_BASE_URL || undefined;
 const clients = {
-  decisions: createDecisionsClient({ apiKey: key, model, baseURL, timeoutMs: 30_000 }),
-  responses: createResponsesClient({ apiKey: key, baseURL, timeoutMs: 120_000 }),
+  decisions: createDecisionsClient({
+    endpoint: foundry.endpoint,
+    deployment: foundry.deployment,
+    getHeaders: foundryAuth(foundry),
+    timeoutMs: 30_000,
+  }),
 };
-const contenders = [decisionsContender(model), ...opponents];
+const contenders = [decisionsContender(MODEL_NAME), ...opponents];
 
 const say = (text = "") => {
   if (!args.json) console.log(text);
@@ -105,8 +91,8 @@ async function attempt(contender, scenario) {
   }
 }
 
-say(`\nLUNA GP speed test · ${SCENARIOS.length} race situations × ${rounds} round${rounds > 1 ? "s" : ""}`);
-say("Each contender gets the same situation and the same 3 questions: a choice (maneuver), a score (pace), a predicate (nitro).\n");
+say(`\nLUNA GP speed test · ${MODEL_NAME} (${foundry.deployment}) · ${SCENARIOS.length} race situations × ${rounds} round${rounds > 1 ? "s" : ""}`);
+say("Each contender gets the same situation and the same 3 questions: a choice (maneuver), a score (pace), a noul (nitro).\n");
 
 // Warm up the HTTPS connections so the TLS handshake doesn't count against anyone.
 progress("  warming up connections…");
@@ -138,7 +124,7 @@ const report = contenders.map((c) => {
   const ok = all.filter((r) => !r.error);
   let same = 0;
   let compared = 0;
-  if (c.api !== "decisions") {
+  if (c.id !== "decisions") {
     for (const r of ok) {
       const ref = reference.find((d) => d.round === r.round && d.scenario === r.scenario && !d.error);
       if (!ref) continue;
@@ -150,15 +136,13 @@ const report = contenders.map((c) => {
     id: c.id,
     label: c.label,
     model: c.model,
-    reasoning: c.reasoning ?? null,
     calls: all.length,
     errors: all.length - ok.length,
     firstError: all.find((r) => r.error)?.error ?? null,
     latencyMs: summarize(ok.map((r) => r.latencyMs)),
-    processingMs: summarize(ok.map((r) => r.processingMs)),
     avgInputTokens: mean(ok.map((r) => r.inputTokens)),
     avgOutputTokens: mean(ok.map((r) => r.outputTokens)),
-    sameManeuver: c.api === "decisions" ? null : { same, compared },
+    sameManeuver: c.id === "decisions" ? null : { same, compared },
   };
 });
 const base = report[0];
@@ -169,13 +153,12 @@ for (const r of report.slice(1)) {
 if (args.json) {
   console.log(JSON.stringify({ rounds, scenarios: SCENARIOS.length, contenders: report }, null, 2));
 } else {
-  const header = ["Contender", "median", "p90", "fastest", "OpenAI time", "tokens in/out", "same move", "errors"];
+  const header = ["Contender", "median", "p90", "fastest", "tokens in/out", "same move", "errors"];
   const rows = report.map((r) => [
     r.label,
     formatMs(r.latencyMs.p50),
     formatMs(r.latencyMs.p90),
     formatMs(r.latencyMs.min),
-    formatMs(r.processingMs.p50),
     r.avgInputTokens === null ? "–" : `${Math.round(r.avgInputTokens)} / ${Math.round(r.avgOutputTokens ?? 0)}`,
     r.sameManeuver ? `${r.sameManeuver.same}/${r.sameManeuver.compared}` : "–",
     String(r.errors),
@@ -190,15 +173,14 @@ if (args.json) {
     if (!r.speedup) {
       say(`  ✗ ${r.label}: no successful calls (${r.firstError ?? "unknown error"})`);
     } else if (r.speedup >= 1) {
-      say(`  ⚡ Decisions API was ${r.speedup.toFixed(1)}× faster than ${r.label} (median ${formatMs(base.latencyMs.p50)} vs ${formatMs(r.latencyMs.p50)})`);
+      say(`  ⚡ ${base.label} was ${r.speedup.toFixed(1)}× faster than ${r.label} (median ${formatMs(base.latencyMs.p50)} vs ${formatMs(r.latencyMs.p50)})`);
     } else {
-      say(`  ${r.label} was ${(1 / r.speedup).toFixed(1)}× faster than the Decisions API (median ${formatMs(r.latencyMs.p50)} vs ${formatMs(base.latencyMs.p50)})`);
+      say(`  ${r.label} was ${(1 / r.speedup).toFixed(1)}× faster than ${base.label} (median ${formatMs(r.latencyMs.p50)} vs ${formatMs(base.latencyMs.p50)})`);
     }
   }
   say();
   say("  median / p90 / fastest: full round trip from this machine, including the network");
-  say("  OpenAI time: median openai-processing-ms header (time spent inside OpenAI)");
-  say("  same move: how often the Responses API picked the Decisions API's top maneuver");
+  say("  same move: how often the opponent picked the same top maneuver as the single batched call");
   for (const r of report.filter((x) => x.errors)) say(`  ! ${r.label}: ${r.errors} failed call(s), e.g. ${r.firstError}`);
   say();
 }

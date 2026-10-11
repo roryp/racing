@@ -1,6 +1,6 @@
-// Browser-side calls to our server, which forwards them to the OpenAI Decisions API.
+// Browser-side calls to our server, which forwards them to Microsoft-Decision-1 on Microsoft Foundry.
 
-const PRICE_PER_INPUT_TOKEN = 0.1 / 1e6; // gpt-6-luna on /v1/decisions: $0.10 per 1M input tokens
+const PRICE_PER_INPUT_TOKEN = 0.04 / 1e6; // Microsoft-Decision-1 on Foundry: $0.04 per 1M tokens
 
 export class DecisionsApi {
   constructor() {
