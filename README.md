@@ -108,6 +108,11 @@ has sound and AI-tag switches, plus **⛶ Full screen** where the browser suppor
 screen to landscape). Hold the phone sideways for the biggest race view; in portrait the controls sit under the race
 view, with the Pit Wall below them.
 
+In portrait, the highlighted areas show the race HUD (1–5), the touch controls (6–9) and the Pit Wall (10–14). Scroll
+down past the controls to see every rival's decision and the Race Control rulings.
+
+![Annotated LUNA GP race screen on a phone in portrait](docs/images/mobile-overview.png)
+
 ## How Microsoft-Decision-1 is used
 
 The game asks the model **typed questions** about the current race situation and acts on the typed answers:
