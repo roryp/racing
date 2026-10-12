@@ -23,7 +23,7 @@ The game runs on Azure App Service and talks to the model with its **system-assi
 
 | Resource | Name | Region |
 | --- | --- | --- |
-| Web app (Linux, Node 22, B1) | `luna-gp-45684` → <https://luna-gp-45684.azurewebsites.net> | Central US |
+| Web app (Linux, Node 22, P0v3) | `luna-gp-45684` → <https://luna-gp-45684.azurewebsites.net> | Central US |
 | Foundry resource | `aoai-dxvm6vcbss5dg` (resource group `rg-genai-java`) | East US 2 |
 | Model deployment | `decision-1-dz`: Microsoft-Decision-1 v1, **DataZoneStandard** (US), 500 requests/min | US data zone |
 | Role assignment | web app identity → **Cognitive Services User** on the Foundry resource | – |
@@ -48,8 +48,9 @@ az cognitiveservices account deployment create -g $rg -n $foundry --deployment-n
   --model-name Microsoft-Decision-1 --model-version 1 --model-format Microsoft `
   --sku-name DataZoneStandard --sku-capacity 500
 
-# 2. Web app with a system-assigned managed identity
-az appservice plan create -g $rg -n asp-luna-gp-centralus -l centralus --is-linux --sku B1
+# 2. Web app with a system-assigned managed identity (Premium v3, P0v3)
+az appservice plan create -g $rg -n asp-luna-gp-centralus -l centralus --is-linux --sku P0v3
+# (to move an existing plan to this size: az appservice plan update -g $rg -n asp-luna-gp-centralus --sku P0v3)
 az webapp create -g $rg -p asp-luna-gp-centralus -n $app --runtime "NODE:22-lts" --assign-identity "[system]"
 az webapp config set -g $rg -n $app --startup-file "node server.js" --always-on true --min-tls-version 1.2 --ftps-state Disabled
 az webapp update -g $rg -n $app --https-only true
@@ -63,7 +64,8 @@ az role assignment create --assignee-object-id $principal --assignee-principal-t
 # 4. Settings (no secrets) and code
 az webapp config appsettings set -g $rg -n $app --settings `
   FOUNDRY_ENDPOINT=https://$foundry.cognitiveservices.azure.com FOUNDRY_DEPLOYMENT=decision-1-dz HOST=0.0.0.0
-# zip server.js, package.json, lib/ and public/ (no dependencies to install), then:
+# zip server.js, package.json, lib/ and public/ (no dependencies to install; tar writes forward-slash paths), then deploy:
+tar -a -c -f luna-gp.zip server.js package.json lib public
 az webapp deploy -g $rg -n $app --src-path luna-gp.zip --type zip
 ```
 
@@ -97,6 +99,14 @@ rivals use offline heuristics.
 | Enter                | Start / race again                              |
 
 Stay on the road: trees, lamps and billboards stop you dead.
+
+### On a phone or tablet
+
+Touch screens get on-screen controls: **◀ ▶** to steer (slide your thumb from one to the other), **GAS**, **BRAKE**
+and **NITRO** (the button fills with the tank and glows when a boost is ready), and **❚❚** to pause. The pause menu
+has sound and AI-tag switches, plus **⛶ Full screen** where the browser supports it (on Android it also locks the
+screen to landscape). Hold the phone sideways for the biggest race view; in portrait the controls sit under the race
+view, with the Pit Wall below them.
 
 ## How Microsoft-Decision-1 is used
 
@@ -215,6 +225,7 @@ lib/env.js            Reads variables from the process env, then the saved Windo
 public/js/race.js     Physics, rival driving, contacts, laps, standings and API payloads
 public/js/rivals.js   Per-rival decision scheduling, nitro thresholds, offline fallback
 public/js/control.js  Race Control reviews and penalties
+public/js/input.js    Keyboard and touch controls (multi-touch pads)
 public/js/render.js   Pseudo-3D road renderer; public/js/art.js draws all sprites in code
 public/js/hud.js      HUD, minimap, Pit Wall, results and debrief
 public/duel.html      Speed duel page; public/js/duel.js runs and draws it, public/js/stats.js computes latency stats

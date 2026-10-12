@@ -3,6 +3,11 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#07071a" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black" />
+    <meta name="apple-mobile-web-app-title" content="LUNA GP" />
     <title>LUNA GP · racing with Microsoft-Decision-1</title>
     <link
       rel="icon"
@@ -42,50 +47,63 @@
           </div>
 
           <div id="menu" class="overlay">
-            <div class="panel">
-              <h1>LUNA <span>GP</span></h1>
-              <p class="tagline">
-                Every rival driver thinks with <b>Microsoft-Decision-1</b> on Microsoft Foundry. Each second, they ask
-                it a <em>choice</em> (maneuver), a <em>score</em> (pace), and a <em>noul</em> (fire nitro?).
-              </p>
-              <div id="menu-status" class="status">Checking the Decisions API…</div>
-              <div class="options">
-                <label
-                  >Rival AI
-                  <select id="opt-brain">
-                    <option value="api">Microsoft-Decision-1 (Foundry)</option>
-                    <option value="local">Offline heuristics</option>
-                  </select>
-                </label>
-                <label
-                  >Difficulty
-                  <select id="opt-difficulty">
-                    <option value="easy">Easy</option>
-                    <option value="normal">Normal</option>
-                    <option value="hard">Hard</option>
-                  </select>
-                </label>
-                <label
-                  >Laps
-                  <select id="opt-laps">
-                    <option value="1">1</option>
-                    <option value="2">2</option>
-                    <option value="3">3</option>
-                    <option value="5">5</option>
-                  </select>
-                </label>
-                <label class="check"><input type="checkbox" id="opt-stewards" /> AI Race Control (penalties)</label>
+            <div class="panel menu-panel">
+              <div class="menu-intro">
+                <h1>LUNA <span>GP</span></h1>
+                <p class="tagline">
+                  Every rival driver thinks with <b>Microsoft-Decision-1</b> on Microsoft Foundry. Each second, they ask
+                  it a <em>choice</em> (maneuver), a <em>score</em> (pace), and a <em>noul</em> (fire nitro?).
+                </p>
+                <div id="menu-status" class="status">Checking the Decisions API…</div>
               </div>
-              <button id="btn-start" class="primary">Start race <kbd>Enter</kbd></button>
-              <a class="duel-link" href="/duel.html">⚡ Speed duel: 1 call vs split calls →</a>
-              <div class="controls">
-                <span><kbd>←</kbd><kbd>→</kbd> steer</span>
-                <span><kbd>↑</kbd> throttle</span>
-                <span><kbd>↓</kbd> brake</span>
-                <span><kbd>Space</kbd> nitro</span>
-                <span><kbd>P</kbd> pause</span>
-                <span><kbd>L</kbd> AI tags</span>
-                <span><kbd>M</kbd> mute</span>
+              <div class="menu-setup">
+                <div class="options">
+                  <label
+                    >Rival AI
+                    <select id="opt-brain">
+                      <option value="api">Microsoft-Decision-1 (Foundry)</option>
+                      <option value="local">Offline heuristics</option>
+                    </select>
+                  </label>
+                  <label
+                    >Difficulty
+                    <select id="opt-difficulty">
+                      <option value="easy">Easy</option>
+                      <option value="normal">Normal</option>
+                      <option value="hard">Hard</option>
+                    </select>
+                  </label>
+                  <label
+                    >Laps
+                    <select id="opt-laps">
+                      <option value="1">1</option>
+                      <option value="2">2</option>
+                      <option value="3">3</option>
+                      <option value="5">5</option>
+                    </select>
+                  </label>
+                  <label class="check"><input type="checkbox" id="opt-stewards" /> AI Race Control (penalties)</label>
+                </div>
+                <button id="btn-start" class="primary">Start race <kbd>Enter</kbd></button>
+                <div class="menu-links">
+                  <a class="duel-link" href="/duel.html">⚡ Speed duel: 1 call vs split calls →</a>
+                  <button type="button" class="btn-fullscreen link-btn touch-only hidden">⛶ Full screen</button>
+                </div>
+                <div class="controls keys-only">
+                  <span><kbd>←</kbd><kbd>→</kbd> steer</span>
+                  <span><kbd>↑</kbd> throttle</span>
+                  <span><kbd>↓</kbd> brake</span>
+                  <span><kbd>Space</kbd> nitro</span>
+                  <span><kbd>P</kbd> pause</span>
+                  <span><kbd>L</kbd> AI tags</span>
+                  <span><kbd>M</kbd> mute</span>
+                </div>
+                <div class="controls touch-only">
+                  <span><b>◀ ▶</b> steer (slide your thumb)</span>
+                  <span><b>GAS</b> · <b>BRAKE</b> · <b>NITRO</b></span>
+                  <span><b>❚❚</b> pause</span>
+                  <span class="rotate-hint">↻ Turn your device sideways for a bigger view</span>
+                </div>
               </div>
             </div>
           </div>
@@ -96,32 +114,52 @@
               <button id="btn-resume" class="primary">Resume</button>
               <button id="btn-restart">Restart race</button>
               <button id="btn-quit">Quit to menu</button>
+              <div class="toggles">
+                <button type="button" id="btn-sound" aria-pressed="true">🔊 Sound on</button>
+                <button type="button" id="btn-labels" aria-pressed="true">🏷️ AI tags on</button>
+              </div>
+              <button type="button" class="btn-fullscreen touch-only hidden">⛶ Full screen</button>
             </div>
           </div>
 
           <div id="results" class="overlay hidden">
             <div class="panel wide">
               <h2 id="results-title">Results</h2>
-              <table class="results">
-                <thead>
-                  <tr>
-                    <th>Pos</th>
-                    <th>Driver</th>
-                    <th>Time</th>
-                    <th>Pen.</th>
-                    <th>Best lap</th>
-                    <th>Overtakes</th>
-                    <th>Contacts</th>
-                  </tr>
-                </thead>
-                <tbody id="results-body"></tbody>
-              </table>
+              <div class="table-scroll">
+                <table class="results">
+                  <thead>
+                    <tr>
+                      <th>Pos</th>
+                      <th>Driver</th>
+                      <th>Time</th>
+                      <th>Pen.</th>
+                      <th>Best lap</th>
+                      <th>Overtakes</th>
+                      <th>Contacts</th>
+                    </tr>
+                  </thead>
+                  <tbody id="results-body"></tbody>
+                </table>
+              </div>
               <div id="debrief" class="debrief"></div>
               <div class="buttons">
                 <button id="btn-again" class="primary">Race again <kbd>Enter</kbd></button>
                 <button id="btn-menu">Main menu</button>
               </div>
             </div>
+          </div>
+        </div>
+
+        <div id="touch" class="touch hidden" aria-hidden="true">
+          <div class="pad pad-steer">
+            <button type="button" tabindex="-1" data-hold="left">◀</button>
+            <button type="button" tabindex="-1" data-hold="right">▶</button>
+          </div>
+          <button type="button" tabindex="-1" class="tc-pause" data-tap="pause">❚❚</button>
+          <div class="pad pad-drive">
+            <button type="button" tabindex="-1" id="touch-nitro" class="tc-nitro" data-tap="nitro">NITRO</button>
+            <button type="button" tabindex="-1" class="tc-brake" data-hold="down">BRAKE</button>
+            <button type="button" tabindex="-1" class="tc-gas" data-hold="up">GAS</button>
           </div>
         </div>
       </main>

@@ -38,6 +38,7 @@ export class Hud {
       speed: $("hud-speed"),
       nitroFill: $("hud-nitro-fill"),
       nitroBox: $("hud-nitro"),
+      touchNitro: $("touch-nitro"),
       draft: $("hud-draft"),
       center: $("hud-center"),
       lights: $("start-lights"),
@@ -78,6 +79,7 @@ export class Hud {
       const card = document.createElement("div");
       card.className = "card";
       card.style.setProperty("--team", car.color);
+      card.style.setProperty("--team-glow", `${car.color}b3`); // 70% alpha, for the decision pulse
       card.innerHTML = `
         <div class="card-head">
           <span class="swatch"></span><b>${escapeHtml(car.name)}</b><span class="num">#${car.number}</span>
@@ -270,8 +272,12 @@ export class Hud {
     this.drawMinimap(race);
     this.el.speed.textContent = Math.round(toKmh(p.speed));
     this.el.nitroFill.style.width = `${Math.round(p.nitro * 100)}%`;
-    this.el.nitroBox.classList.toggle("ready", p.nitro >= NITRO_COST && p.nitroTime <= 0);
-    this.el.nitroBox.classList.toggle("active", p.nitroTime > 0);
+    const nitroReady = p.nitro >= NITRO_COST && p.nitroTime <= 0;
+    for (const nitro of [this.el.nitroBox, this.el.touchNitro]) {
+      nitro?.classList.toggle("ready", nitroReady);
+      nitro?.classList.toggle("active", p.nitroTime > 0);
+    }
+    this.el.touchNitro?.style.setProperty("--tank", `${Math.round(p.nitro * 100)}%`);
     this.el.draft.classList.toggle("hidden", !p.drafting);
     if (this.frame % 4 !== 0) return;
 

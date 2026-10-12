@@ -2,7 +2,7 @@ import { MAX_SPEED, PLAYER_Z, SEGMENT_LENGTH, STEP } from "./config.js";
 import { createArt } from "./art.js";
 import { Track } from "./track.js";
 import { Renderer } from "./render.js";
-import { Input } from "./input.js";
+import { Input, watchTouchUi } from "./input.js";
 import { Sound } from "./audio.js";
 import { DecisionsApi } from "./api.js";
 import { Race } from "./race.js";
@@ -17,6 +17,9 @@ const canvas = $("game");
 const track = new Track();
 const renderer = new Renderer(canvas, track, createArt());
 const input = new Input();
+const touchPad = $("touch");
+input.bindTouch(touchPad);
+watchTouchUi();
 const sound = new Sound();
 const api = new DecisionsApi();
 const hud = new Hud(track, api);
@@ -87,6 +90,64 @@ function setOverlay(id, visible) {
   $(id).classList.toggle("hidden", !visible);
 }
 
+/** On-screen driving controls show only while a race is on (and only on touch screens, via CSS). */
+function setTouchControls(visible) {
+  touchPad.classList.toggle("hidden", !visible);
+}
+
+// ---- sound, AI tags & full screen (keys on desktop, buttons in the pause menu) -------
+
+function syncToggles() {
+  const soundButton = $("btn-sound");
+  soundButton.textContent = sound.muted ? "🔇 Sound off" : "🔊 Sound on";
+  soundButton.setAttribute("aria-pressed", String(!sound.muted));
+  const labelsButton = $("btn-labels");
+  labelsButton.textContent = settings.labels ? "🏷️ AI tags on" : "🏷️ AI tags off";
+  labelsButton.setAttribute("aria-pressed", String(settings.labels));
+}
+
+function toggleSound() {
+  sound.setMuted(!sound.muted);
+  syncToggles();
+}
+
+function toggleLabels() {
+  settings.labels = !settings.labels;
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  syncToggles();
+}
+
+const fullscreenButtons = document.querySelectorAll(".btn-fullscreen");
+const canFullscreen = Boolean(document.fullscreenEnabled || document.webkitFullscreenEnabled);
+const fullscreenElement = () => document.fullscreenElement ?? document.webkitFullscreenElement ?? null;
+
+function syncFullscreen() {
+  for (const button of fullscreenButtons) {
+    button.classList.toggle("hidden", !canFullscreen);
+    button.textContent = fullscreenElement() ? "Exit full screen" : "⛶ Full screen";
+  }
+}
+
+async function toggleFullscreen() {
+  const root = document.documentElement;
+  try {
+    if (fullscreenElement()) {
+      await (document.exitFullscreen ?? document.webkitExitFullscreen).call(document);
+    } else {
+      await (root.requestFullscreen ?? root.webkitRequestFullscreen).call(root, { navigationUI: "hide" });
+      // Race sideways: phones that allow it (Android) lock to landscape while in full screen.
+      await screen.orientation?.lock?.("landscape")?.catch(() => {});
+    }
+  } catch {
+    // The browser refused full screen; the game still works in the page.
+  }
+}
+
+/** Short vibration on touch devices that support it (Android); a no-op elsewhere. */
+function buzz(pattern) {
+  if (document.documentElement.classList.contains("touch-ui")) navigator.vibrate?.(pattern);
+}
+
 // ---- race lifecycle --------------------------------------------------------------
 
 function captureFrame() {
@@ -133,6 +194,9 @@ function startRace() {
   setOverlay("menu", false);
   setOverlay("pause", false);
   setOverlay("results", false);
+  setTouchControls(true);
+  // On phones the page scrolls (Pit Wall below the race): bring the race view back into view.
+  window.scrollTo(0, 0);
   resultsShown = false;
   shake = 0;
   input.reset();
@@ -150,6 +214,7 @@ function quitToMenu() {
   setOverlay("pause", false);
   setOverlay("results", false);
   setOverlay("menu", true);
+  setTouchControls(false);
   sound.engine(0, false, false);
 }
 
@@ -173,6 +238,7 @@ async function showResults() {
   const thisRace = race;
   hud.renderResults(race);
   setOverlay("results", true);
+  setTouchControls(false);
   sound.engine(0, false, false);
 
   if (!(brains?.mode === "api")) {
@@ -216,12 +282,14 @@ function handleEvent(event) {
     case "contact":
       shake = Math.max(shake, 12 * event.intensity);
       sound.bump(event.intensity);
+      buzz(Math.round(20 + 40 * event.intensity));
       control?.review(event.incident);
       break;
     case "wall":
       if (event.car.isPlayer) {
         shake = 16;
         sound.bump(1);
+        buzz(80);
         hud.flash("CRASH!", 800, "bad");
       }
       break;
@@ -229,7 +297,10 @@ function handleEvent(event) {
       if (event.car.isPlayer) hud.flash(`FINISH · P${event.car.position}`, 4000, "go");
       break;
     case "penalty":
-      if (event.car.isPlayer) hud.flash(`+${event.seconds}s PENALTY`, 2500, "bad");
+      if (event.car.isPlayer) {
+        buzz([60, 60, 120]);
+        hud.flash(`+${event.seconds}s PENALTY`, 2500, "bad");
+      }
       break;
     case "classified":
       showResults();
@@ -242,13 +313,7 @@ function handleEvent(event) {
 function step(dt) {
   const player = race.player;
   const before = player.progress;
-  race.update(dt, {
-    left: input.held.left,
-    right: input.held.right,
-    up: input.held.up,
-    down: input.held.down,
-    nitro: input.consume("nitro"),
-  });
+  race.update(dt, { ...input.held, nitro: input.consume("nitro") });
   brains?.update(performance.now());
 
   const moved = (player.progress - before) / SEGMENT_LENGTH;
@@ -265,12 +330,11 @@ function step(dt) {
 function handleKeys() {
   if (input.consume("pause") && (screen === "race" || screen === "paused")) togglePause();
   if (input.consume("mute")) {
-    sound.setMuted(!sound.muted);
+    toggleSound();
     hud.ticker(sound.muted ? "Sound off (M)" : "Sound on (M)");
   }
   if (input.consume("labels")) {
-    settings.labels = !settings.labels;
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+    toggleLabels();
     hud.ticker(settings.labels ? "AI decision tags on (L)" : "AI decision tags off (L)");
   }
   if (input.consume("confirm")) {
@@ -317,10 +381,17 @@ $("btn-restart").addEventListener("click", startRace);
 $("btn-quit").addEventListener("click", quitToMenu);
 $("btn-again").addEventListener("click", startRace);
 $("btn-menu").addEventListener("click", quitToMenu);
+$("btn-sound").addEventListener("click", toggleSound);
+$("btn-labels").addEventListener("click", toggleLabels);
+for (const button of fullscreenButtons) button.addEventListener("click", toggleFullscreen);
+document.addEventListener("fullscreenchange", syncFullscreen);
+document.addEventListener("webkitfullscreenchange", syncFullscreen);
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) togglePause(true);
 });
 
+syncToggles();
+syncFullscreen();
 checkApiStatus();
 requestAnimationFrame(frame);
 

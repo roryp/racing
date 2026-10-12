@@ -5,9 +5,11 @@
 
 import { createArt, shade } from "./art.js";
 import { MANEUVERS } from "./config.js";
+import { watchTouchUi } from "./input.js";
 import { formatMs, summarize } from "./stats.js";
 
 const $ = (id) => document.getElementById(id);
+watchTouchUi();
 
 const W = 1280;
 const H = 460;
