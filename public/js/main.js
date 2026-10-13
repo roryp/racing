@@ -277,7 +277,10 @@ function handleEvent(event) {
       );
       break;
     case "nitro":
-      if (event.car.isPlayer) sound.beep(180, 0.3);
+      if (event.car.isPlayer) {
+        sound.beep(180, 0.3);
+        buzz(35);
+      }
       break;
     case "contact":
       shake = Math.max(shake, 12 * event.intensity);
@@ -313,7 +316,8 @@ function handleEvent(event) {
 function step(dt) {
   const player = race.player;
   const before = player.progress;
-  race.update(dt, { ...input.held, nitro: input.consume("nitro") });
+  const held = input.held;
+  race.update(dt, { ...held, nitro: input.consume("nitro") || held.nitro });
   brains?.update(performance.now());
 
   const moved = (player.progress - before) / SEGMENT_LENGTH;

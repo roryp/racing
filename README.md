@@ -103,7 +103,9 @@ Stay on the road: trees, lamps and billboards stop you dead.
 ### On a phone or tablet
 
 Touch screens get on-screen controls: **◀ ▶** to steer (slide your thumb from one to the other), **GAS**, **BRAKE**
-and **NITRO** (the button fills with the tank and glows when a boost is ready), and **❚❚** to pause. The pause menu
+and **NITRO** (the button fills with the tank and glows when a boost is ready), and **❚❚** to pause. NITRO sits just
+above GAS and keeps the throttle on, so boost by sliding your throttle thumb up onto it (holding it fires again as soon
+as the tank allows) and slide back down to GAS afterwards. The pause menu
 has sound and AI-tag switches, plus **⛶ Full screen** where the browser supports it (on Android it also locks the
 screen to landscape). Hold the phone sideways for the biggest race view; in portrait the controls sit under the race
 view, with the Pit Wall below them.

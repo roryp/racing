@@ -1170,6 +1170,11 @@ html.touch-ui .touch {
   box-shadow: 0 0 16px rgba(255, 138, 61, 0.8);
 }
 
+/* Held (it keeps the throttle on too): keep showing the tank level. */
+.touch .tc-nitro.on {
+  background: linear-gradient(to top, rgba(61, 214, 255, 0.6) var(--tank, 0%), rgba(61, 214, 255, 0.18) var(--tank, 0%));
+}
+
 .touch .tc-pause {
   position: absolute;
   top: 8px;

@@ -20,7 +20,7 @@ const ACTIONS = {
   Enter: "confirm",
 };
 
-const released = () => ({ left: false, right: false, up: false, down: false });
+const released = () => ({ left: false, right: false, up: false, down: false, nitro: false });
 
 /**
  * Adds `touch-ui` to <html> on touch-first devices, or as soon as someone touches the page,
@@ -47,7 +47,7 @@ export class Input {
   constructor(target = window) {
     this.keys = released();
     this.touch = released();
-    this.pointers = new Map(); // pointerId -> { hold, pad } for fingers on the touch pads
+    this.pointers = new Map(); // pointerId -> { button, pad } for fingers on the touch pads
     this.touchRoot = null;
     this.pressed = new Set();
 
@@ -66,7 +66,10 @@ export class Input {
     window.addEventListener("blur", () => this.reset());
   }
 
-  /** Controls currently held on the keyboard or the touch pads. */
+  /**
+   * Controls currently held on the keyboard or the touch pads. `nitro` is only ever held on the
+   * touch pads (the keyboard fires it once per press through `consume`).
+   */
   get held() {
     const { keys, touch } = this;
     return {
@@ -74,19 +77,22 @@ export class Input {
       right: keys.right || touch.right,
       up: keys.up || touch.up,
       down: keys.down || touch.down,
+      nitro: touch.nitro,
     };
   }
 
   /**
    * On-screen controls. `[data-hold]` buttons act like held keys and follow the finger
-   * to other buttons on the same `.pad` (slide from ◀ to ▶ to steer); `[data-tap]`
-   * buttons fire their action once per touch. Every finger is tracked separately.
+   * to other buttons on the same `.pad` (slide from ◀ to ▶ to steer); `[data-boost]`
+   * buttons also request nitro while a finger is on them, so the throttle thumb can slide
+   * from GAS up to NITRO (whose hold is the throttle too) without letting off.
+   * `[data-tap]` buttons fire their action once per touch. Every finger is tracked separately.
    */
   bindTouch(root) {
     this.touchRoot = root;
-    const holdAt = (x, y, pad) => {
+    const buttonAt = (x, y, pad) => {
       const button = document.elementFromPoint(x, y)?.closest("[data-hold]");
-      return button && button.closest(".pad") === pad ? button.dataset.hold : null;
+      return button && button.closest(".pad") === pad ? button : null;
     };
     const release = (e) => {
       if (this.pointers.delete(e.pointerId)) this.syncTouch();
@@ -108,15 +114,15 @@ export class Input {
         setTimeout(() => button.classList.remove("on"), 140);
         return;
       }
-      this.pointers.set(e.pointerId, { hold: button.dataset.hold, pad: button.closest(".pad") });
+      this.pointers.set(e.pointerId, { button, pad: button.closest(".pad") });
       this.syncTouch();
     });
     root.addEventListener("pointermove", (e) => {
       const finger = this.pointers.get(e.pointerId);
       if (!finger) return;
-      const hold = holdAt(e.clientX, e.clientY, finger.pad);
-      if (hold !== finger.hold) {
-        finger.hold = hold;
+      const button = buttonAt(e.clientX, e.clientY, finger.pad);
+      if (button !== finger.button) {
+        finger.button = button;
         this.syncTouch();
       }
     });
@@ -131,9 +137,15 @@ export class Input {
 
   syncTouch() {
     this.touch = released();
-    for (const { hold } of this.pointers.values()) if (hold) this.touch[hold] = true;
+    const down = new Set();
+    for (const { button } of this.pointers.values()) {
+      if (!button) continue;
+      down.add(button);
+      this.touch[button.dataset.hold] = true;
+      if ("boost" in button.dataset) this.touch.nitro = true;
+    }
     for (const button of this.touchRoot?.querySelectorAll("[data-hold]") ?? []) {
-      button.classList.toggle("on", this.touch[button.dataset.hold]);
+      button.classList.toggle("on", down.has(button));
     }
   }
 
