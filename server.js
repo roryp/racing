@@ -25,6 +25,9 @@ const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || "127.0.0.1";
 const VERBOSE = process.env.LOG_DECISIONS === "1";
 const MAX_IN_FLIGHT = 16;
+// Hard cap on model calls per UTC day, so a public server can't run up an unbounded bill.
+const DAILY_CALL_LIMIT = Number(process.env.DAILY_CALL_LIMIT) || 20_000;
+const DAILY_LIMIT_REACHED = "Daily AI decision limit reached";
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -46,9 +49,18 @@ const foundry = resolveFoundryConfig();
 const MODEL = `${MODEL_NAME} (${foundry.deployment})`;
 const keySource = foundry.authSource;
 const getHeaders = foundryAuth(foundry);
-const decisions = foundry.endpoint
+const client = foundry.endpoint
   ? createDecisionsClient({ endpoint: foundry.endpoint, deployment: foundry.deployment, getHeaders, timeoutMs: 8000 })
   : null;
+// Every upstream call counts against the daily cap, including each of a split duel's three calls.
+const decisions = client && {
+  model: client.model,
+  async create(request) {
+    if (dailyLimitReached()) throw new OpenAIError(DAILY_LIMIT_REACHED, { status: 429, code: "daily_limit" });
+    daily.calls++;
+    return client.create(request);
+  },
+};
 // Fetch the first Entra ID token at startup so the first race decision doesn't wait for it.
 if (decisions) getHeaders().catch((err) => console.warn(`[auth] ${err.message}`));
 const DUEL_CONTENDERS = [decisionsContender(MODEL_NAME), ...opponents(MODEL_NAME)];
@@ -59,6 +71,13 @@ const ALLOWED_HOSTS = new Set([`127.0.0.1:${PORT}`, `localhost:${PORT}`, `[::1]:
 
 let inFlight = 0;
 const stats = { calls: 0, errors: 0, inputTokens: 0, latencyMs: 0 };
+const daily = { date: "", calls: 0 };
+
+function dailyLimitReached() {
+  const date = new Date().toISOString().slice(0, 10);
+  if (date !== daily.date) Object.assign(daily, { date, calls: 0 });
+  return daily.calls >= DAILY_CALL_LIMIT;
+}
 
 function sendJson(res, status, body) {
   res.writeHead(status, {
@@ -118,6 +137,7 @@ async function handleDecision(name, route, req, res) {
   if (!isTrustedRequest(req)) return sendJson(res, 403, { error: "Forbidden origin" });
   if (!decisions) return sendJson(res, 503, { error: NOT_CONFIGURED });
   if (inFlight >= MAX_IN_FLIGHT) return sendJson(res, 429, { error: "Too many decisions in flight" });
+  if (dailyLimitReached()) return sendJson(res, 429, { error: DAILY_LIMIT_REACHED });
 
   let request;
   try {
@@ -173,6 +193,7 @@ async function handleDuel(req, res) {
   if (!isTrustedRequest(req)) return sendJson(res, 403, { error: "Forbidden origin" });
   if (!decisions) return sendJson(res, 503, { error: NOT_CONFIGURED });
   if (inFlight >= MAX_IN_FLIGHT) return sendJson(res, 429, { error: "Too many requests in flight" });
+  if (dailyLimitReached()) return sendJson(res, 429, { error: DAILY_LIMIT_REACHED });
 
   let body;
   try {

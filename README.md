@@ -17,31 +17,32 @@ find race progress, driving information, rival decisions and Race Control ruling
 
 ![Annotated LUNA GP race screen](docs/images/race-overview.png)
 
-## Live deployment
+## Azure deployment
 
-The game runs on Azure App Service and talks to the model with its **system-assigned managed identity** (no keys):
+On Azure, the game runs on App Service and talks to the model with its **system-assigned managed identity** (no keys):
 
-| Resource | Name | Region |
-| --- | --- | --- |
-| Web app (Linux, Node 22, P0v3) | `luna-gp-45684` → <https://luna-gp-45684.azurewebsites.net> | Central US |
-| Foundry resource | `aoai-dxvm6vcbss5dg` (resource group `rg-genai-java`) | East US 2 |
-| Model deployment | `decision-1-dz`: Microsoft-Decision-1 v1, **DataZoneStandard** (US), 500 requests/min | US data zone |
-| Role assignment | web app identity → **Cognitive Services User** on the Foundry resource | – |
+| Resource | Name |
+| --- | --- |
+| Web app (Linux, Node 22, P0v3) | `luna-gp-<unique>` |
+| Foundry resource | `<foundry-resource>` |
+| Model deployment | `decision-1-dz`: Microsoft-Decision-1 v1, **DataZoneStandard**, 500 requests/min |
+| Role assignment | web app identity → **Cognitive Services User** on the Foundry resource |
 
-The web app and the model deployment are in the same US data zone. App Service had no quota in East US 2 in this
-subscription, so the app runs in Central US; requests stay inside the US data zone either way.
+Put the web app in a region inside the model deployment's data zone, so requests stay inside that data zone.
 
-**Throughput:** one deployment allows up to 500 requests/min (the subscription's DataZoneStandard quota). A race makes about
+**Throughput:** a deployment with capacity 500 allows up to 500 requests/min. A race makes about
 300 rival calls a minute, so one deployment supports one or two simultaneous races. For more, add deployments in other
 quota pools (GlobalStandard, or another data zone) or request a quota increase in the Foundry portal.
 
-> The site is public and unauthenticated: anyone with the URL can start races, which uses your model quota and is billed to
-> the subscription. The server caps work at 16 decisions in flight. Stop the app (`az webapp stop -g rg-genai-java -n luna-gp-45684`) when you're not using it.
+> The web app is public and unauthenticated: anyone with the URL can call the API, which uses your model quota and is
+> billed to the subscription. The server caps work at 16 decisions in flight and at `DAILY_CALL_LIMIT` model calls per
+> UTC day (default 20,000, about $0.50 a day); after that, rivals use offline heuristics until the next day. Stop the app
+> (`az webapp stop -g <resource-group> -n <app-name>`) when you're not using it.
 
 ### Deploy it yourself
 
 ```powershell
-$rg = "rg-genai-java"; $app = "luna-gp-<unique>"; $foundry = "aoai-dxvm6vcbss5dg"
+$rg = "<resource-group>"; $app = "luna-gp-<unique>"; $plan = "<app-service-plan>"; $foundry = "<foundry-resource>"
 
 # 1. Model: Microsoft-Decision-1 (deployment names can't contain "Microsoft")
 az cognitiveservices account deployment create -g $rg -n $foundry --deployment-name decision-1-dz `
@@ -49,9 +50,9 @@ az cognitiveservices account deployment create -g $rg -n $foundry --deployment-n
   --sku-name DataZoneStandard --sku-capacity 500
 
 # 2. Web app with a system-assigned managed identity (Premium v3, P0v3)
-az appservice plan create -g $rg -n asp-luna-gp-centralus -l centralus --is-linux --sku P0v3
-# (to move an existing plan to this size: az appservice plan update -g $rg -n asp-luna-gp-centralus --sku P0v3)
-az webapp create -g $rg -p asp-luna-gp-centralus -n $app --runtime "NODE:22-lts" --assign-identity "[system]"
+az appservice plan create -g $rg -n $plan -l centralus --is-linux --sku P0v3
+# (to move an existing plan to this size: az appservice plan update -g $rg -n $plan --sku P0v3)
+az webapp create -g $rg -p $plan -n $app --runtime "NODE:22-lts" --assign-identity "[system]"
 az webapp config set -g $rg -n $app --startup-file "node server.js" --always-on true --min-tls-version 1.2 --ftps-state Disabled
 az webapp update -g $rg -n $app --https-only true
 
@@ -75,7 +76,7 @@ Requirements: Node.js 20+, the Azure CLI signed in (`az login`) with access to t
 `FOUNDRY_ENDPOINT`. There are no npm dependencies, so there's nothing to install.
 
 ```powershell
-$env:FOUNDRY_ENDPOINT = "https://aoai-dxvm6vcbss5dg.cognitiveservices.azure.com"
+$env:FOUNDRY_ENDPOINT = "https://<foundry-resource>.cognitiveservices.azure.com"
 npm start
 ```
 
@@ -179,7 +180,7 @@ you can copy the result or show every answer side by side.
 ### Benchmark from the command line
 
 ```powershell
-$env:FOUNDRY_ENDPOINT = "https://aoai-dxvm6vcbss5dg.cognitiveservices.azure.com"
+$env:FOUNDRY_ENDPOINT = "https://<foundry-resource>.cognitiveservices.azure.com"
 npm run bench                               # 1 call vs 3 parallel and 3 sequential calls
 npm run bench -- --rounds 3                 # 3 samples per race situation
 npm run bench -- --opponents split-parallel
@@ -209,6 +210,7 @@ the race situation is sent three times. Sequential calls are about 2.6× slower.
 | `FOUNDRY_API_KEY`    | unset           | Optional key auth; leave unset to use Microsoft Entra ID                |
 | `PORT`               | `3000`          | HTTP port (App Service sets this)                                       |
 | `HOST`               | `127.0.0.1`     | Bind address (`0.0.0.0` on App Service)                                 |
+| `DAILY_CALL_LIMIT`   | `20000`         | Most model calls per UTC day (per server process); then the API returns 429 |
 | `LOG_DECISIONS`      | unset           | Set to `1` to log every decision and duel call                          |
 
 **Authentication** (first match wins): `FOUNDRY_API_KEY` → the App Service **managed identity** (detected from
