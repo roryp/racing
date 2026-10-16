@@ -157,7 +157,7 @@ The model is text-only, so Race Control judges contacts from the telemetry alone
 
 Two cars race on a drag strip. Both ask **Microsoft-Decision-1** the same race situations and the same three
 rival-driver questions: a `choice` (which maneuver?), a `score` (how hard to push?) and a `noul` (fire nitro?). Each
-answer moves that car one step toward the flag.
+answer moves that car one step toward the flag, and the car whose answers took less time in total wins.
 
 - **Cyan car:** one call that asks all three questions together.
 - **Orange car:** the opponent you pick:
@@ -173,9 +173,12 @@ answer moves that car one step toward the flag.
 2. Pick an opponent and how many race decisions each car must answer (5, 10 or 20).
 3. Press **Start duel** (or Enter).
 
-The game server times every decision, from sending the first request until the last byte of the last answer arrives,
-so your browser's connection doesn't count. One untimed warm-up call per car runs during the countdown. At the finish,
-you can copy the result or show every answer side by side.
+The game server times every decision, from sending the first request until the last byte of the last answer arrives
+(waiting for an auth token never counts). A car's time is the sum of its decision times, so the trip between your
+browser and the game server doesn't count either; the result says how much time that trip added. Totals less than 5%
+apart are a dead heat. Each car's card also shows the input tokens it used per decision, which is what you pay for.
+One untimed warm-up call per car runs during the countdown. At the finish, you can copy the result or show every
+answer side by side.
 
 ### Benchmark from the command line
 
@@ -186,6 +189,8 @@ npm run bench -- --rounds 3                 # 3 samples per race situation
 npm run bench -- --opponents split-parallel
 npm run bench -- --json                     # machine-readable output
 ```
+
+Medians less than 5% apart are reported as a dead heat.
 
 ### Our results
 

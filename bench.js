@@ -10,7 +10,7 @@ import { parseArgs } from "node:util";
 import { decisionsContender, OPPONENTS, runContender, SCENARIOS } from "./lib/benchmark.js";
 import { createDecisionsClient, MODEL_NAME } from "./lib/decisions.js";
 import { foundryAuth, resolveFoundryConfig } from "./lib/foundry.js";
-import { formatMs, summarize } from "./public/js/stats.js";
+import { compareTimes, DEAD_HEAT_RATIO, formatMs, summarize } from "./public/js/stats.js";
 
 const USAGE = `Usage: npm run bench -- [options]
 
@@ -170,12 +170,17 @@ if (args.json) {
   for (const row of rows) say(line(row));
   say();
   for (const r of report.slice(1)) {
-    if (!r.speedup) {
+    const cmp = compareTimes(base.latencyMs.p50, r.latencyMs.p50);
+    const medians = (first, second) => `median ${formatMs(first.latencyMs.p50)} vs ${formatMs(second.latencyMs.p50)}`;
+    if (!cmp) {
       say(`  ✗ ${r.label}: no successful calls (${r.firstError ?? "unknown error"})`);
-    } else if (r.speedup >= 1) {
-      say(`  ⚡ ${base.label} was ${r.speedup.toFixed(1)}× faster than ${r.label} (median ${formatMs(base.latencyMs.p50)} vs ${formatMs(r.latencyMs.p50)})`);
+    } else if (cmp.faster === null) {
+      const within = `${Math.round((DEAD_HEAT_RATIO - 1) * 100)}%`;
+      say(`  ≈ ${base.label} and ${r.label} were a dead heat: less than ${within} apart (${medians(base, r)})`);
+    } else if (cmp.faster === 0) {
+      say(`  ⚡ ${base.label} was ${cmp.factor.toFixed(1)}× faster than ${r.label} (${medians(base, r)})`);
     } else {
-      say(`  ${r.label} was ${(1 / r.speedup).toFixed(1)}× faster than ${base.label} (median ${formatMs(r.latencyMs.p50)} vs ${formatMs(base.latencyMs.p50)})`);
+      say(`  ${r.label} was ${cmp.factor.toFixed(1)}× faster than ${base.label} (${medians(r, base)})`);
     }
   }
   say();

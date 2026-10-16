@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { decisionsContender, OPPONENTS, runContender, SCENARIOS } from "../lib/benchmark.js";
 import { buildRivalRequest } from "../lib/prompts.js";
-import { formatMs, summarize } from "../public/js/stats.js";
+import { compareTimes, formatMs, summarize } from "../public/js/stats.js";
 
 const ANSWERS = {
   maneuver: {
@@ -19,14 +19,33 @@ const ANSWERS = {
   nitro: { type: "predicate", name: "nitro", probability: 0.9 },
 };
 
-function fakeDecisions() {
+// Like the real client, each call reports when its request went out and when its answer arrived,
+// taken in turn from `timings`.
+function fakeDecisions(timings = [[1000, 1300]]) {
   const sent = [];
   return {
     sent,
     create: async (request) => {
+      const [startedAt, endedAt] = timings[sent.length % timings.length];
       sent.push(request);
       const answers = Object.fromEntries(request.questions.map((q) => [q.name, ANSWERS[q.name]]));
-      return { model: "microsoft-decision-1", answers, usage: { input_tokens: 100, output_tokens: 1 }, latencyMs: 300 };
+      const usage = { input_tokens: 100, output_tokens: 1 };
+      return { model: "microsoft-decision-1", answers, usage, latencyMs: endedAt - startedAt, startedAt, endedAt };
+    },
+  };
+}
+
+// Like the real client: the first call waits for an auth token, then only the request itself is timed.
+function slowAuthDecisions(authMs) {
+  let token = null;
+  return {
+    create: async (request) => {
+      token ??= new Promise((resolve) => setTimeout(resolve, authMs));
+      await token;
+      const startedAt = performance.now();
+      const answers = Object.fromEntries(request.questions.map((q) => [q.name, ANSWERS[q.name]]));
+      const endedAt = performance.now();
+      return { model: "m", answers, usage: null, latencyMs: Math.round(endedAt - startedAt), startedAt, endedAt };
     },
   };
 }
@@ -58,6 +77,29 @@ describe("runContender", () => {
     });
   }
 
+  it("times parallel calls until the slowest answers, and sequential calls from first request to last answer", async () => {
+    const [parallel, serial] = ["split-parallel", "split-serial"].map((id) => OPPONENTS.find((o) => o.id === id));
+    const overlapping = fakeDecisions([
+      [1000, 1250],
+      [1001, 1300],
+      [1002, 1280],
+    ]);
+    assert.equal((await runContender({ contender: parallel, scenario: 0, decisions: overlapping })).latencyMs, 300);
+    const backToBack = fakeDecisions([
+      [1000, 1300],
+      [1301, 1600],
+      [1601, 1900],
+    ]);
+    assert.equal((await runContender({ contender: serial, scenario: 0, decisions: backToBack })).latencyMs, 900);
+  });
+
+  it("never counts waiting for an auth token, whichever way the questions are asked", async () => {
+    for (const contender of [decisionsContender(), ...OPPONENTS]) {
+      const result = await runContender({ contender, scenario: 0, decisions: slowAuthDecisions(60) });
+      assert.ok(result.latencyMs < 30, `${contender.id} counted ${result.latencyMs} ms`);
+    }
+  });
+
   it("rejects unknown race situations", async () => {
     await assert.rejects(
       runContender({ contender: decisionsContender(), scenario: SCENARIOS.length, decisions: null }),
@@ -88,5 +130,13 @@ describe("latency stats", () => {
     assert.equal(formatMs(1620), "1.62 s");
     assert.equal(formatMs(12_345), "12.3 s");
     assert.equal(formatMs(null), "–");
+  });
+
+  it("calls times less than 5% apart a dead heat", () => {
+    assert.deepEqual(compareTimes(1000, 1040), { factor: 1.04, faster: null });
+    assert.deepEqual(compareTimes(1000, 1050), { factor: 1.05, faster: 0 });
+    assert.deepEqual(compareTimes(2330, 1000), { factor: 2.33, faster: 1 });
+    assert.equal(compareTimes(null, 1000), null);
+    assert.equal(compareTimes(1000, 0), null);
   });
 });

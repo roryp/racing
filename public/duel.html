@@ -21,7 +21,7 @@
           Two ways of asking <b>Microsoft-Decision-1</b> the same race situations and the same three questions: a
           <em>choice</em> (which maneuver?), a <em>score</em> (how hard to push?) and a <em>noul</em> (fire nitro?).
           One car asks all three in a single call; the other splits them into separate calls. Every answer moves that
-          car one step. First to the flag wins.
+          car one step. The car whose answers took less time in total wins.
         </p>
       </header>
 
@@ -51,6 +51,7 @@
       <section id="duel-result" class="duel-result hidden">
         <div id="result-headline" class="headline"></div>
         <div id="result-sub" class="sub"></div>
+        <div id="result-note" class="note"></div>
         <pre id="share" class="share"></pre>
         <div class="buttons">
           <button id="btn-copy">📋 Copy result</button>
@@ -77,9 +78,10 @@
 
       <p class="fineprint">
         How it's measured: the game server calls Microsoft-Decision-1 on Microsoft Foundry and times each decision from
-        the moment the first request is sent until the last byte of the last answer arrives, so your browser's own
-        connection doesn't count. Both cars get identical race situations, evidence and questions. Connections are
-        warmed up before the lights go out.
+        the moment the first request is sent until the last byte of the last answer arrives. A car's time is the sum of
+        its decision times, so the trip between your browser and the game server doesn't count, even though the cars
+        only move once the answers reach your browser. Less than 5% apart is a dead heat. Both cars get identical race
+        situations, evidence and questions. Connections are warmed up before the lights go out.
       </p>
     </main>
     <script type="module" src="/js/duel.js"></script>

@@ -6,7 +6,7 @@
 import { createArt, shade } from "./art.js";
 import { MANEUVERS } from "./config.js";
 import { watchTouchUi } from "./input.js";
-import { formatMs, summarize } from "./stats.js";
+import { compareTimes, DEAD_HEAT_RATIO, formatMs, summarize } from "./stats.js";
 
 const $ = (id) => document.getElementById(id);
 watchTouchUi();
@@ -21,6 +21,7 @@ const START_X = 215;
 const FINISH_X = 1130;
 const CAR_LENGTH = 170;
 const FONT = 'system-ui, "Segoe UI", sans-serif';
+const MIN_TEXT_PX = 11; // smallest on-screen size for text drawn on the canvas
 const OPPONENT_KEY = "lunagp.duel.opponent";
 
 // Lane 0 (near, bottom) is the batched single call; lane 1 (far, top) is the opponent.
@@ -46,6 +47,7 @@ const state = {
   goUntil: 0,
   lightCount: 0,
   warming: false,
+  outcome: null, // { winner } once decided; winner null is a dead heat
   verdict: null,
 };
 
@@ -57,6 +59,24 @@ function escapeHtml(text) {
 
 function formatClock(ms) {
   return ms === null || ms === undefined ? "–" : `${(ms / 1000).toFixed(2)} s`;
+}
+
+// A car's time is the sum of its decision times as measured on the game server, so the trip
+// between this browser and the server never counts.
+function modelTime(lane) {
+  return lane.results.reduce((sum, r) => sum + r.latencyMs, 0);
+}
+
+function inputTokens(lane) {
+  const { mean } = summarize(lane.results.map((r) => r.inputTokens));
+  return mean === null ? null : Math.round(mean);
+}
+
+// The canvas scales with the page, so on narrow screens its text is drawn bigger (up to `max` times)
+// to stay at least MIN_TEXT_PX on screen.
+function fontPx(size, max = 2.5) {
+  const shown = canvas.clientWidth || W;
+  return Math.round(Math.min(size * max, Math.max(size, (MIN_TEXT_PX * W) / shown)));
 }
 
 // ---- API -----------------------------------------------------------------------
@@ -94,8 +114,6 @@ function makeLane(contender, style) {
     flame: 0,
     pops: [],
     finishedAt: null,
-    endedAt: null,
-    place: null,
     error: null,
     view: null,
   };
@@ -107,6 +125,7 @@ function resetLanes() {
   const decisions = state.config.contenders.find((c) => c.id === "decisions");
   const opponent = state.config.contenders.find((c) => c.id === $("opt-opponent").value);
   state.lanes = [makeLane(decisions, LANE_STYLES[0]), makeLane(opponent, LANE_STYLES[1])];
+  state.outcome = null;
   state.verdict = null;
   $("duel-result").classList.add("hidden");
   buildCards();
@@ -154,8 +173,8 @@ async function runLane(lane, id) {
         if (id !== state.duelId) return;
         if (attempt >= 2 || err.status === 400 || err.status === 503) {
           lane.error = err.message;
-          lane.endedAt = performance.now() - state.startedAt;
-          updateCard(lane);
+          state.outcome = null;
+          updateCards();
           return;
         }
         await sleep(500);
@@ -167,23 +186,33 @@ async function runLane(lane, id) {
     lane.flame = 1;
     lane.pops.push({ text: `+${formatMs(result.latencyMs)}`, born: performance.now() });
     addChip(lane, result);
-    if (lane.results.length === state.rounds) {
-      lane.finishedAt = performance.now() - state.startedAt;
-      lane.place = state.lanes.filter((l) => l.finishedAt !== null).length;
-    }
-    updateCard(lane);
+    if (lane.results.length === state.rounds) lane.finishedAt = performance.now() - state.startedAt;
+    decideWinner();
+    updateCards();
   }
 }
 
+// The lower total model time wins, decided as soon as that's certain: a finished car has won once the
+// other car's running total is already 5% or more behind. Less than 5% apart at the end is a dead heat.
+function decideWinner() {
+  const [a, b] = state.lanes;
+  if (state.outcome || a.error || b.error) return;
+  const cmp = compareTimes(modelTime(a), modelTime(b));
+  if (!cmp) return;
+  const finished = (lane) => lane.finishedAt !== null;
+  if (cmp.faster === 0 && finished(a)) state.outcome = { winner: a };
+  else if (cmp.faster === 1 && finished(b)) state.outcome = { winner: b };
+  else if (cmp.faster === null && finished(a) && finished(b)) state.outcome = { winner: null };
+}
+
+// "winner", "dead heat" or "finished", for a car that has crossed the line.
+function placing(lane) {
+  if (state.outcome?.winner === lane) return "winner";
+  return state.outcome && !state.outcome.winner ? "dead heat" : "finished";
+}
+
 function stopDuel() {
-  const wasRacing = state.phase === "racing";
   state.duelId++;
-  if (wasRacing) {
-    const elapsed = performance.now() - state.startedAt;
-    for (const lane of state.lanes) {
-      if (lane.finishedAt === null && lane.endedAt === null) lane.endedAt = elapsed;
-    }
-  }
   finishDuel(true);
 }
 
@@ -206,6 +235,25 @@ function describe(result) {
   return `${move}${p} · pace ${pace} · nitro ${nitro}`;
 }
 
+// Plain-language notes: what the times count, and why the token numbers matter.
+function resultNote(a, b, complete) {
+  const notes = ["Times count only how long the model took to answer, measured on the game server."];
+  if (complete) {
+    const extra = Math.max(0, (a.finishedAt - modelTime(a) + b.finishedAt - modelTime(b)) / 2);
+    notes.push(`The trip between your browser and the game server added about ${formatClock(extra)} per car on top, which doesn't count.`);
+  }
+  const tokA = inputTokens(a);
+  const tokB = inputTokens(b);
+  const calls = b.results[0]?.calls ?? 0;
+  if (tokA && tokB && tokA < tokB && a.results[0]?.calls === 1 && calls > 1) {
+    notes.push(
+      `${a.contender.short} used ${Math.round((1 - tokA / tokB) * 100)}% fewer input tokens because it sends the race ` +
+        `situation once instead of ${calls} times, and you pay per token.`,
+    );
+  }
+  return notes.join(" ");
+}
+
 function showVerdict(stopped) {
   const [a, b] = state.lanes;
   const n = state.rounds;
@@ -218,53 +266,81 @@ function showVerdict(stopped) {
     if (a.results[i].answer.maneuver === b.results[i].answer.maneuver) same++;
   }
   const complete = a.finishedAt !== null && b.finishedAt !== null;
-  const factor = complete ? b.finishedAt / a.finishedAt : latA.p50 && latB.p50 ? latB.p50 / latA.p50 : null;
-  const decisionsAhead = factor === null || factor >= 1;
-  const times = factor === null ? null : (decisionsAhead ? factor : 1 / factor).toFixed(1);
-  const winner = decisionsAhead ? a.contender.short : b.contender.short;
+  const timeA = modelTime(a);
+  const timeB = modelTime(b);
+  // A finished race compares total model times; a stopped one compares the median decision.
+  const cmp = complete ? compareTimes(timeA, timeB) : compareTimes(latA.p50, latB.p50);
+  const winner = cmp?.faster === 0 ? a : cmp?.faster === 1 ? b : null;
+  const times = cmp && `${cmp.factor.toFixed(1)}×`;
+  const within = `${Math.round((DEAD_HEAT_RATIO - 1) * 100)}%`;
+  const short = (lane) => escapeHtml(lane.contender.short);
 
   let headline;
   if (a.error || b.error) {
     const failed = a.error ? a : b;
-    headline = `${escapeHtml(failed.contender.short)} hit an error: ${escapeHtml(failed.error)}`;
+    headline = `${short(failed)} hit an error: ${escapeHtml(failed.error)}`;
     state.verdict = { top: "RACE STOPPED", big: "ERROR", bottom: failed.error.slice(0, 90), color: "#f87171" };
-  } else if (complete) {
-    headline = decisionsAhead
-      ? `<b>${times}× faster.</b> ${escapeHtml(a.contender.short)} answered ${n} race decisions in ${formatClock(a.finishedAt)}. ${escapeHtml(b.contender.short)} needed ${formatClock(b.finishedAt)}.`
-      : `<b>${times}× faster.</b> ${escapeHtml(b.contender.short)} won this one: ${formatClock(b.finishedAt)} vs ${formatClock(a.finishedAt)}.`;
+  } else if (complete && winner) {
+    const loser = winner === a ? b : a;
+    headline =
+      `<b>${times} faster.</b> ${short(winner)} answered ${n} race decisions in ${formatClock(modelTime(winner))}. ` +
+      `${short(loser)} needed ${formatClock(modelTime(loser))}.`;
     state.verdict = {
-      top: winner.toUpperCase(),
-      big: `${times}× FASTER`,
-      bottom: `${n} race decisions · ${formatClock(a.finishedAt)} vs ${formatClock(b.finishedAt)}`,
-      color: decisionsAhead ? LANE_STYLES[0].color : LANE_STYLES[1].color,
+      top: winner.contender.short.toUpperCase(),
+      big: `${times} FASTER`,
+      bottom: `${n} race decisions · ${formatClock(timeA)} vs ${formatClock(timeB)}`,
+      color: winner.style.color,
+    };
+  } else if (complete) {
+    headline =
+      `<b>Dead heat.</b> ${short(a)} answered ${n} race decisions in ${formatClock(timeA)} and ${short(b)} in ` +
+      `${formatClock(timeB)}: less than ${within} apart, too close to call.`;
+    state.verdict = {
+      top: "TOO CLOSE TO CALL",
+      big: "DEAD HEAT",
+      bottom: `${n} race decisions · ${formatClock(timeA)} vs ${formatClock(timeB)}`,
+      color: "#d9d4f0",
     };
   } else if (!a.results.length && !b.results.length) {
     headline = "Stopped before anyone answered.";
     state.verdict = null;
   } else {
-    headline =
-      `Stopped at ${a.results.length} vs ${b.results.length} answers.` +
-      (times ? ` Per decision, ${escapeHtml(winner)} was <b>${times}× faster</b> (median).` : "");
+    const medianNote = !cmp
+      ? ""
+      : winner
+        ? ` Per decision, ${short(winner)} was <b>${times} faster</b> (median).`
+        : ` Per decision, it was a dead heat (medians less than ${within} apart).`;
+    headline = `Stopped at ${a.results.length} vs ${b.results.length} answers.${medianNote}`;
     state.verdict = {
       top: stopped ? "STOPPED" : "FINISHED",
-      big: times ? `${times}× FASTER` : "–",
+      big: !cmp ? "–" : winner ? `${times} FASTER` : "DEAD HEAT",
       bottom: `median per decision · ${formatMs(latA.p50)} vs ${formatMs(latB.p50)}`,
       color: "#d9d4f0",
     };
   }
 
+  const tokA = inputTokens(a);
+  const tokB = inputTokens(b);
   $("result-headline").innerHTML = headline;
   $("result-sub").textContent =
     `Median per decision: ${formatMs(latA.p50)} vs ${formatMs(latB.p50)} · ` +
+    (tokA && tokB ? `input tokens per decision: ${tokA} vs ${tokB} · ` : "") +
     `same maneuver in ${same} of ${compared} situations`;
+  $("result-note").textContent = resultNote(a, b, complete);
 
-  const total = (lane) => (lane.finishedAt !== null ? `${formatClock(lane.finishedAt)} total` : `${lane.results.length}/${n} answered`);
+  const total = (lane) =>
+    lane.finishedAt !== null ? `${formatClock(modelTime(lane))} total` : `${lane.results.length}/${n} answered`;
+  const perDecision = (lane, lat) => {
+    const tokens = inputTokens(lane);
+    return `median ${formatMs(lat.p50)}${tokens === null ? "" : ` and ${tokens} input tokens`} per decision`;
+  };
   const share = [
     `⚡ LUNA GP speed duel: ${n} race decisions, each a choice + score + noul`,
-    `${a.contender.label}: ${total(a)}, median ${formatMs(latA.p50)} per decision`,
-    `${b.contender.label}: ${total(b)}, median ${formatMs(latB.p50)} per decision`,
+    `${a.contender.label}: ${total(a)}, ${perDecision(a, latA)}`,
+    `${b.contender.label}: ${total(b)}, ${perDecision(b, latB)}`,
   ];
-  if (times) share.push(`${winner} was ${times}× faster${complete ? "" : " per decision"}.`);
+  if (winner) share.push(`${winner.contender.short} was ${times} faster${complete ? "" : " per decision"}.`);
+  else if (cmp) share.push(`Dead heat: less than ${within} apart${complete ? "" : " per decision"}.`);
   $("share").textContent = share.join("\n");
 
   $("th-a").textContent = a.contender.short;
@@ -334,7 +410,12 @@ function buildCards() {
         <div><label>answered</label><span class="lc-count"></span></div>
         <div><label>last</label><span class="lc-last"></span></div>
         <div><label>median</label><span class="lc-median"></span></div>
-        <div><label>race time</label><span class="lc-time"></span></div>
+        <div title="Sum of this car's decision times, measured on the game server. Your own connection doesn't count.">
+          <label>model time</label><span class="lc-time"></span>
+        </div>
+        <div title="Input tokens per race decision. You pay per token.">
+          <label>tokens each</label><span class="lc-tokens"></span>
+        </div>
       </div>
       <div class="lc-answers"></div>`;
     card.querySelector(".lc-label").textContent = lane.contender.label;
@@ -345,6 +426,7 @@ function buildCards() {
       last: card.querySelector(".lc-last"),
       median: card.querySelector(".lc-median"),
       time: card.querySelector(".lc-time"),
+      tokens: card.querySelector(".lc-tokens"),
       answers: card.querySelector(".lc-answers"),
     };
     host.appendChild(card);
@@ -354,7 +436,11 @@ function buildCards() {
 
 function laneStatus(lane) {
   if (lane.error) return ["error", "error"];
-  if (lane.finishedAt !== null) return lane.place === 1 ? ["🏆 winner", "winner"] : ["🏁 finished", "finished"];
+  if (lane.finishedAt !== null) {
+    const place = placing(lane);
+    if (place === "winner") return ["🏆 winner", "winner"];
+    return place === "dead heat" ? ["🤝 dead heat", "finished"] : ["🏁 finished", "finished"];
+  }
   if (state.phase === "racing") return ["racing", "racing"];
   if (state.phase === "countdown") return ["on the grid", ""];
   if (state.phase === "done") return ["stopped", ""];
@@ -372,6 +458,8 @@ function updateCard(lane) {
   view.count.textContent = `${lane.results.length}/${state.rounds}`;
   view.last.textContent = formatMs(latencies.at(-1));
   view.median.textContent = formatMs(summarize(latencies).p50);
+  view.time.textContent = lane.results.length ? formatClock(modelTime(lane)) : "–";
+  view.tokens.textContent = inputTokens(lane) ?? "–";
 }
 
 function updateCards() {
@@ -561,7 +649,8 @@ function drawTrack(rounds) {
   const c = makeCanvas(W, H);
   const g = c.getContext("2d");
   g.drawImage(backdrop, 0, 0);
-  g.font = `700 12px ${FONT}`;
+  const spacing = (FINISH_X - START_X) / rounds;
+  g.font = `700 ${Math.min(fontPx(12), Math.round(spacing * 0.6))}px ${FONT}`;
   g.textAlign = "center";
   for (let i = 1; i < rounds; i++) {
     const x = START_X + ((FINISH_X - START_X) * i) / rounds;
@@ -717,14 +806,17 @@ function drawCar(x, baseY, scale, style, wheelAngle, flame, streaks) {
   ctx.restore();
 }
 
+/** Draws a name tag whose bottom edge sits just above `y`; returns the tag's top edge. */
 function drawTag(text, cx, y, color) {
   ctx.save();
-  ctx.font = `800 15px ${FONT}`;
-  const w = ctx.measureText(text).width + 20;
+  const size = fontPx(15, 1.6);
+  ctx.font = `800 ${size}px ${FONT}`;
+  const w = ctx.measureText(text).width + (size * 4) / 3;
+  const h = size * 1.6;
   const x = Math.max(w / 2 + 6, Math.min(W - w / 2 - 6, cx));
   ctx.fillStyle = "rgba(10,10,28,0.82)";
   ctx.beginPath();
-  ctx.roundRect(x - w / 2, y - 26, w, 24, 7);
+  ctx.roundRect(x - w / 2, y - 2 - h, w, h, 7);
   ctx.fill();
   ctx.strokeStyle = color;
   ctx.lineWidth = 2;
@@ -732,8 +824,9 @@ function drawTag(text, cx, y, color) {
   ctx.fillStyle = color;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText(text, x, y - 13);
+  ctx.fillText(text, x, y - 1 - h / 2);
   ctx.restore();
+  return y - 2 - h;
 }
 
 function drawLane(lane, now) {
@@ -746,7 +839,7 @@ function drawLane(lane, now) {
 
   const centerX = x - (CAR_LENGTH * style.scale) / 2;
   const tagY = style.baseY - 70 * style.scale;
-  drawTag(lane.contender.short, centerX, tagY, style.color);
+  const tagTop = drawTag(lane.contender.short, centerX, tagY, style.color);
 
   for (const pop of lane.pops) {
     const age = (now - pop.born) / 1000;
@@ -755,28 +848,34 @@ function drawLane(lane, now) {
     ctx.save();
     ctx.globalAlpha = alpha;
     ctx.textAlign = "center";
-    ctx.font = `italic 900 ${Math.round(20 * style.scale + 4)}px ${FONT}`;
+    ctx.font = `italic 900 ${fontPx(20 * style.scale + 4, 1.6)}px ${FONT}`;
     ctx.shadowColor = style.color;
     ctx.shadowBlur = 10;
     ctx.fillStyle = "#ffffff";
-    ctx.fillText(pop.text, centerX, tagY - 32 - age * 26);
+    ctx.fillText(pop.text, centerX, tagTop - 6 - age * 26);
     ctx.restore();
   }
   lane.pops = lane.pops.filter((p) => now - p.born < 1600);
 
   const labelX = FINISH_X + 34;
   if (lane.finishedAt !== null || lane.error) {
+    const timeSize = fontPx(28 * style.scale, 1.4);
+    const timeY = style.baseY - 18 * style.scale;
+    const room = W - labelX - 8;
+    const label = lane.error
+      ? "✗ ERROR"
+      : { winner: "🏆 WINNER", "dead heat": "🤝 DEAD HEAT", finished: "🏁 FINISH" }[placing(lane)];
     ctx.save();
     ctx.textAlign = "left";
     ctx.shadowColor = "rgba(0,0,0,0.7)";
     ctx.shadowBlur = 6;
     ctx.fillStyle = lane.error ? "#f87171" : "#ffffff";
-    ctx.font = `800 13px ${FONT}`;
-    ctx.fillText(lane.error ? "✗ ERROR" : lane.place === 1 ? "🏆 WINNER" : "🏁 FINISH", labelX, style.baseY - 46 * style.scale);
+    ctx.font = `800 ${fontPx(13, 1.6)}px ${FONT}`;
+    ctx.fillText(label, labelX, timeY - timeSize * 0.85 - 4, room);
     if (lane.finishedAt !== null) {
       ctx.fillStyle = style.color;
-      ctx.font = `italic 900 ${Math.round(28 * style.scale)}px ${FONT}`;
-      ctx.fillText(formatClock(lane.finishedAt), labelX, style.baseY - 18 * style.scale);
+      ctx.font = `italic 900 ${timeSize}px ${FONT}`;
+      ctx.fillText(formatClock(modelTime(lane)), labelX, timeY, room);
     }
     ctx.restore();
   }
@@ -804,12 +903,13 @@ function drawLights(count, go) {
 
 function centerText(text, y, { size = 16, weight = 700, italic = false, color = "#d9d4f0" } = {}) {
   ctx.save();
+  const px = fontPx(size);
   ctx.textAlign = "center";
-  ctx.font = `${italic ? "italic " : ""}${weight} ${size}px ${FONT}`;
+  ctx.font = `${italic ? "italic " : ""}${weight} ${px}px ${FONT}`;
   ctx.shadowColor = "rgba(0,0,0,0.7)";
-  ctx.shadowBlur = size > 30 ? 14 : 8;
+  ctx.shadowBlur = px > 30 ? 14 : 8;
   ctx.fillStyle = color;
-  ctx.fillText(text, W / 2, y);
+  ctx.fillText(text, W / 2, y, W - 40);
   ctx.restore();
 }
 
@@ -822,7 +922,7 @@ function drawOverlay(now) {
     centerText("GO!", 138, { size: 20, weight: 900, color: "#3dff7a" });
   } else if (state.phase === "racing") {
     centerText(formatClock(now - state.startedAt), 96, { size: 58, weight: 900, italic: true, color: "#ffffff" });
-    centerText(`first to ${state.rounds} race decisions wins`, 128);
+    centerText("elapsed · cars are timed on the game server", 130);
   } else if (state.verdict) {
     const v = state.verdict;
     centerText(v.top, 50, { size: 22, weight: 800, color: v.color });
@@ -833,15 +933,6 @@ function drawOverlay(now) {
     centerText(`${state.rounds} race decisions each · press Start duel`, 126);
   } else {
     centerText(state.phase === "loading" ? "connecting…" : "unavailable", 100, { size: 22 });
-  }
-}
-
-function updateClocks(now) {
-  for (const lane of state.lanes) {
-    if (!lane.view) continue;
-    const ms = lane.finishedAt ?? lane.endedAt ?? (state.phase === "racing" ? now - state.startedAt : null);
-    const text = formatClock(ms);
-    if (lane.view.time.textContent !== text) lane.view.time.textContent = text;
   }
 }
 
@@ -861,9 +952,13 @@ function frame(now) {
   ctx.drawImage(trackLayer, 0, 0);
   for (let i = state.lanes.length - 1; i >= 0; i--) drawLane(state.lanes[i], now);
   drawOverlay(now);
-  updateClocks(now);
   requestAnimationFrame(frame);
 }
+
+// Text sizes depend on how wide the canvas is shown, so redraw the cached track when that changes.
+addEventListener("resize", () => {
+  trackLayer = drawTrack(state.rounds);
+});
 
 syncControls();
 init();

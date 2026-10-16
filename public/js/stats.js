@@ -28,3 +28,16 @@ export function formatMs(ms) {
   if (Math.round(ms) < 1000) return `${Math.round(ms)} ms`;
   return `${(ms / 1000).toFixed(ms < 10_000 ? 2 : 1)} s`;
 }
+
+/** Times less than 5% apart are a dead heat: too close to call. */
+export const DEAD_HEAT_RATIO = 1.05;
+
+/**
+ * Compare two durations. Null when either is missing; otherwise `factor` (slower / quicker, at least 1)
+ * and `faster`: 0 or 1 for whichever is quicker, or null for a dead heat.
+ */
+export function compareTimes(a, b) {
+  if (!(Number.isFinite(a) && Number.isFinite(b) && a > 0 && b > 0)) return null;
+  const factor = Math.max(a, b) / Math.min(a, b);
+  return { factor, faster: factor < DEAD_HEAT_RATIO ? null : a < b ? 0 : 1 };
+}

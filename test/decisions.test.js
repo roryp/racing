@@ -82,6 +82,7 @@ describe("createDecisionsClient", () => {
     assert.equal(result.processingMs, null);
     assert.equal(result.requestId, "req_1");
     assert.ok(result.latencyMs >= 0);
+    assert.ok(Number.isFinite(result.startedAt) && result.endedAt >= result.startedAt);
   });
 
   it("honours a custom deployment and API-key headers", async () => {

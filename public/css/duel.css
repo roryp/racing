@@ -168,7 +168,7 @@ html.duel-page body {
 
 .lc-stats {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
   gap: 8px;
 }
 
@@ -236,6 +236,14 @@ html.duel-page body {
 .duel-result .sub {
   color: #cfcaea;
   font-size: 14px;
+}
+
+.duel-result .note {
+  max-width: 880px;
+  margin: 0 auto;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .share {
