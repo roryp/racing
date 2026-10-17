@@ -169,7 +169,7 @@ answer moves that car one step toward the flag, and the car whose answers took l
 
 ![Annotated LUNA GP Speed Duel screen](docs/images/duel-overview.png)
 
-1. Open `/duel.html`, or select **⚡ Speed duel** on the game's main menu.
+1. Open `/duel.html`. The game's main menu doesn't link to it, so race demos stay focused on the race.
 2. Pick an opponent and how many race decisions each car must answer (5, 10 or 20).
 3. Press **Start duel** (or Enter).
 

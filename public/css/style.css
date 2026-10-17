@@ -465,28 +465,9 @@ button.primary {
   padding: 14px;
 }
 
-.duel-link {
-  display: inline-block;
-  color: var(--cyan);
-  font-size: 14px;
-  font-weight: 700;
-  text-decoration: none;
-}
-
-.duel-link:hover {
-  text-decoration: underline;
-}
-
-.menu-links {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  align-items: baseline;
-  gap: 6px 18px;
-  margin-top: 12px;
-}
-
 .link-btn {
+  display: block;
+  margin: 12px auto 0;
   padding: 0;
   border: none;
   background: none;
