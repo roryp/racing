@@ -31,7 +31,7 @@ On Azure, the game runs on App Service and talks to the model with its **system-
 Put the web app in a region inside the model deployment's data zone, so requests stay inside that data zone.
 
 **Throughput:** a deployment with capacity 500 allows up to 500 requests/min. A race makes about
-300 rival calls a minute, so one deployment supports one or two simultaneous races. For more, add deployments in other
+250 rival calls a minute, so one deployment supports about two simultaneous races. For more, add deployments in other
 quota pools (GlobalStandard, or another data zone) or request a quota increase in the Foundry portal.
 
 > The web app is public and unauthenticated: anyone with the URL can call the API, which uses your model quota and is
@@ -148,8 +148,9 @@ If the API fails or is unreachable, the affected rivals switch to an offline heu
 `FALLBACK`/`LOCAL`, and the race carries on. The game reconnects automatically once the API responds again. You can also
 choose **Offline heuristics** in the menu.
 
-**Cost:** Microsoft-Decision-1 is billed per token ($0.04 per 1M tokens). A rival decision is about 600 tokens and a
-race makes roughly 250 rival calls a minute, so racing costs about half a cent per minute, or about 2 cents for a 3-lap race.
+**Cost:** Microsoft-Decision-1 is billed per token ($0.04 per 1M tokens, one rate for input and output). A rival
+decision is about 630 input tokens and 3 output tokens, and a race makes roughly 250 rival calls a minute, so racing
+costs about 0.6 cents a minute, or about 1.5 cents for a 3-lap race (about 2.5 minutes).
 
 The model is text-only, so Race Control judges contacts from the telemetry alone (no camera frame is sent).
 
