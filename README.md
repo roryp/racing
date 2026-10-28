@@ -1,5 +1,7 @@
 # LUNA GP
 
+![LUNA GP under a full moon](docs/images/luna-gp-cover.png)
+
 A pseudo-3D night-time arcade racer in which every rival driver, the race stewards and the post-race debrief are powered by
 [Microsoft-Decision-1](https://ai.azure.com/catalog/models/Microsoft-Decision-1) on Microsoft Foundry
 (`POST <foundry-endpoint>/providers/microsoft/v1/systemone`).
