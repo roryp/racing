@@ -99,7 +99,8 @@ rivals use offline heuristics.
 | M                    | Mute                                            |
 | Enter                | Start / race again                              |
 
-Stay on the road: trees, lamps and billboards stop you dead.
+Stay on the road: trees, lamps and billboards stop you dead. Like the old arcade racers, a crash (or getting stuck on the
+grass) slides your car back onto the road; it blinks for a moment while other cars pass through it, then you race on.
 
 ### On a phone or tablet
 

@@ -31,6 +31,16 @@ export const OFF_ROAD_DECEL = -MAX_SPEED / 2;
 export const OFF_ROAD_LIMIT = MAX_SPEED / 4;
 export const CENTRIFUGAL = 0.3;
 
+// Arcade-style recovery: after a crash (or when stuck on the grass) the car is
+// slid sideways back onto the road, then the driver carries on.
+export const RECOVERY_PAUSE = 0.5; // s the car sits still after a crash
+export const RECOVERY_SLIDE = 1.2; // lateral slide speed, offset units per second
+export const RECOVERY_OFFSET = 0.7; // where the car is set down on the road
+export const GHOST_TIME = 1.5; // s after recovery during which the car can't collide
+export const STUCK_SPEED = MAX_SPEED * 0.1;
+export const STUCK_TIME = 1; // s crawling on the grass before the car is rescued
+export const OFF_ROAD_RESCUE = 3; // s off the road before the car is rescued
+
 // Cars
 export const CAR_WIDTH = 560; // world units
 export const CAR_LENGTH = 340; // world units along the track

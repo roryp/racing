@@ -271,7 +271,11 @@ export class Renderer {
     const bounce = Math.sin(view.time * 31) * speedPct * 1.5 + (Math.abs(car.offset) > 1 ? (Math.random() - 0.5) * 6 * speedPct : 0);
     const set = this.art.cars.player;
     const img = view.steer < 0 ? set.left : view.steer > 0 ? set.right : set.straight;
+    // Blink while the car is being put back on the road and can't collide.
+    const ghost = car.recovery || car.ghostTime > 0;
+    if (ghost && Math.floor(view.time * 12) % 2 === 0) this.ctx.globalAlpha = 0.4;
     const rect = this.drawImage(img, CAR_WIDTH, scale, HALF_W, HEIGHT - 6 + bounce, -0.5, -1, 0);
+    this.ctx.globalAlpha = 1;
     if (rect) this.drawCarEffects(rect, car, view.time);
   }
 

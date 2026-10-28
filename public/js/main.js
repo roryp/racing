@@ -296,6 +296,12 @@ function handleEvent(event) {
         hud.flash("CRASH!", 800, "bad");
       }
       break;
+    case "recovering":
+      if (event.car.isPlayer && !event.crashed) hud.flash("BACK TO THE TRACK", 1200);
+      break;
+    case "recovered":
+      if (event.car.isPlayer) hud.flash("GO!", 900, "go");
+      break;
     case "finish":
       if (event.car.isPlayer) hud.flash(`FINISH · P${event.car.position}`, 4000, "go");
       break;

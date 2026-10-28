@@ -3,10 +3,10 @@
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { CAR_LENGTH, CENTRIFUGAL, MAX_SPEED, STEP } from "../public/js/config.js";
-import { Race } from "../public/js/race.js";
+import { CAR_LENGTH, CENTRIFUGAL, GHOST_TIME, MAX_SPEED, OFF_ROAD_RESCUE, ROAD_WIDTH, SEGMENT_LENGTH, STEP } from "../public/js/config.js";
+import { isGhost, Race } from "../public/js/race.js";
 import { localDecision, RivalBrains } from "../public/js/rivals.js";
-import { Track } from "../public/js/track.js";
+import { SPRITE_TYPES, Track } from "../public/js/track.js";
 import { buildDebriefRequest, buildRivalRequest, buildStewardRequest } from "../lib/prompts.js";
 
 const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
@@ -29,14 +29,14 @@ function bot(race) {
   };
 }
 
-function runRace({ laps = 1, difficulty = "normal" } = {}) {
+function runRace({ laps = 1, difficulty = "normal", driver = bot } = {}) {
   const track = new Track();
   const race = new Race({ track, laps, difficulty });
   const brains = new RivalBrains({ race, api: null, mode: "local" });
   const events = [];
   race.startCountdown();
   for (let step = 0; race.phase !== "finished" && step < 60 * 400; step++) {
-    race.update(STEP, bot(race));
+    race.update(STEP, driver(race, step));
     brains.update(race.time * 1000 + step);
     events.push(...race.drainEvents());
   }
@@ -133,5 +133,116 @@ describe("contacts", () => {
     assert.ok(race.player.speed < MAX_SPEED * 0.95, "the rear car should lose speed");
     const { input } = buildStewardRequest(contact.incident);
     assert.match(input, new RegExp(`the player ran into the back of ${rival.name}`));
+  });
+});
+
+describe("roadside recovery", () => {
+  /** A race where only the player moves (rivals parked half a lap away). */
+  function soloRace() {
+    const track = new Track();
+    const race = new Race({ track, laps: 3 });
+    race.phase = "racing";
+    race.rivals.forEach((car, i) => {
+      car.launchDelay = Infinity;
+      car.progress = track.length / 2 + i * CAR_LENGTH * 3;
+    });
+    return { track, race };
+  }
+
+  function drive(race, seconds, controls, until = () => false) {
+    const events = [];
+    for (let t = 0; t < seconds && !until(); t += STEP) {
+      race.update(STEP, typeof controls === "function" ? controls(race) : controls);
+      events.push(...race.drainEvents());
+    }
+    return events;
+  }
+
+  it("puts the car back on the road after it hits a tree, then lets it race on", () => {
+    const { track, race } = soloRace();
+    const p = race.player;
+    const seg = track.segments.find((s) => s.index > 200 && s.sprites.some((sp) => sp.kind === "pine" && sp.offset > 1.6 && sp.offset < 2));
+    const tree = seg.sprites.find((sp) => sp.kind === "pine" && sp.offset > 1.6 && sp.offset < 2);
+    p.progress = seg.index * SEGMENT_LENGTH + 20;
+    p.offset = tree.offset + (SPRITE_TYPES.pine.width / ROAD_WIDTH) * 0.5;
+    p.speed = MAX_SPEED * 0.25;
+
+    const panic = { up: true, right: true, nitro: true }; // inputs are ignored while recovering
+    const crash = drive(race, STEP, panic);
+    assert.ok(crash.some((e) => e.type === "wall"), "expected a crash");
+    assert.ok(p.recovery?.crashed, "the crash should start a recovery");
+    assert.equal(p.speed, 0);
+
+    const start = race.time;
+    const events = drive(race, 4, panic, () => !p.recovery);
+    assert.equal(p.recovery, null, "the car should be back on the road");
+    assert.ok(race.time - start < 3, `recovery took ${(race.time - start).toFixed(2)} s`);
+    assert.ok(events.some((e) => e.type === "recovered"));
+    assert.ok(Math.abs(p.offset) <= 1, `offset ${p.offset}`);
+    assert.equal(p.nitroTime, 0);
+    assert.ok(isGhost(p));
+
+    drive(race, 3, bot);
+    assert.ok(p.speed > MAX_SPEED * 0.3, `speed ${p.speed}`);
+    assert.ok(Math.abs(p.offset) < 1);
+    assert.equal(p.wallHits, 1);
+    assert.ok(!isGhost(p), `ghost should wear off after ${GHOST_TIME} s`);
+  });
+
+  it("rescues a car that has stopped on the grass", () => {
+    const { track, race } = soloRace();
+    const p = race.player;
+    const seg = track.segments.find((s) => s.index > 200 && s.sprites.every((sp) => !SPRITE_TYPES[sp.kind].solid || sp.offset > 0));
+    p.progress = seg.index * SEGMENT_LENGTH + 20;
+    p.offset = -1.5;
+    p.speed = 0;
+
+    const events = drive(race, 4, {}, () => p.recovery === null && p.ghostTime > 0);
+    const start = events.find((e) => e.type === "recovering");
+    assert.ok(start && !start.crashed, "expected a rescue");
+    assert.ok(events.some((e) => e.type === "recovered"));
+    assert.ok(Math.abs(p.offset) <= 1, `offset ${p.offset}`);
+  });
+
+  it("rescues a car that stays off the road too long", () => {
+    const { track, race } = soloRace();
+    const p = race.player;
+    const seg = track.segments.find((s) => s.index > 200 && s.sprites.every((sp) => !SPRITE_TYPES[sp.kind].solid || sp.offset > 0));
+    p.progress = seg.index * SEGMENT_LENGTH + 20;
+    p.offset = -1.05;
+    p.speed = MAX_SPEED * 0.2;
+    p.wallCooldown = Infinity; // only test the timer, not trees further along
+
+    const events = drive(race, OFF_ROAD_RESCUE + 2, { up: true }, () => p.recovery !== null);
+    assert.ok(events.some((e) => e.type === "recovering" && !e.crashed));
+    assert.ok(p.speed > 0, "a rescued car keeps rolling");
+  });
+
+  it("lets rivals pass through a recovering car without a contact", () => {
+    const { race } = soloRace();
+    const p = race.player;
+    const rival = race.rivals[0];
+    p.progress = 30_000;
+    p.offset = 1.6;
+    race.startRecovery(p, true);
+    rival.progress = p.progress - CAR_LENGTH * 0.5;
+    rival.offset = 0.7;
+    rival.speed = MAX_SPEED * 0.5;
+    assert.equal(race.blocker(rival), null, "rivals should not brake for a ghost");
+
+    const events = drive(race, 1.5, {});
+    assert.ok(!events.some((e) => e.type === "contact"), "no contact with a ghost");
+  });
+
+  it("lets a driver who keeps steering into the forest still finish", () => {
+    const novice = (race, step) => {
+      const t = (step / 60) % 12;
+      return t > 6 && t < 8.5 ? { up: true, right: true } : bot(race);
+    };
+    const { race } = runRace({ laps: 1, driver: novice });
+    const p = race.player;
+    assert.ok(p.finished && !p.estimated, "the player should cross the line");
+    assert.ok(p.recoveries > 0, "expected at least one recovery");
+    assert.ok(p.lapTimes[0] < 100, `lap ${p.lapTimes[0]}`);
   });
 });

@@ -12,6 +12,7 @@ import {
   DRAFT_BOOST,
   DRAFT_RANGE_M,
   DRAFT_RECHARGE,
+  GHOST_TIME,
   MAX_SPEED,
   M_PER_UNIT,
   NITRO_BOOST,
@@ -20,9 +21,15 @@ import {
   NITRO_RECHARGE,
   OFF_ROAD_DECEL,
   OFF_ROAD_LIMIT,
+  OFF_ROAD_RESCUE,
   PLAYER,
+  RECOVERY_OFFSET,
+  RECOVERY_PAUSE,
+  RECOVERY_SLIDE,
   RIVALS,
   ROAD_WIDTH,
+  STUCK_SPEED,
+  STUCK_TIME,
   toKmh,
 } from "./config.js";
 import { SPRITE_TYPES } from "./track.js";
@@ -34,6 +41,9 @@ const COOLDOWN_SPEED = 0.62;
 const AVG_SPEED = MAX_SPEED * 0.85;
 
 const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
+
+/** A car being put back on the road (or just after) passes through the others. */
+export const isGhost = (car) => Boolean(car.recovery) || car.ghostTime > 0;
 
 function makeCar(def, isPlayer) {
   return {
@@ -70,8 +80,12 @@ function makeCar(def, isPlayer) {
     lastOvertakeAt: -10,
     contacts: 0,
     offTrackTime: 0,
+    offRoadFor: 0,
     wallHits: 0,
     wallCooldown: 0,
+    recovery: null,
+    recoveries: 0,
+    ghostTime: 0,
     maxSpeed: 0,
     launchDelay: 0,
     history: new Float32Array(HISTORY),
@@ -180,7 +194,7 @@ export class Race {
   blocker(car, range = CAR_LENGTH * 3.5) {
     let best = null;
     for (const other of this.cars) {
-      if (other === car) continue;
+      if (other === car || isGhost(other)) continue;
       const dz = this.deltaZ(car, other);
       if (dz <= 0 || dz > range) continue;
       if (Math.abs(other.offset - car.offset) > CAR_HALF * 2.1) continue;
@@ -221,8 +235,12 @@ export class Race {
 
     for (const car of this.cars) car.prevProgress = car.progress;
     for (const car of this.cars) this.updateDrafting(car, dt);
-    if (this.player.finished) this.driveAi(this.player, dt);
-    else this.drivePlayer(this.player, dt, controls);
+    if (this.player.finished) {
+      this.player.recovery = null;
+      this.driveAi(this.player, dt);
+    } else {
+      this.drivePlayer(this.player, dt, controls);
+    }
     for (const car of this.rivals) {
       if (this.time >= car.launchDelay) this.driveAi(car, dt);
     }
@@ -262,6 +280,11 @@ export class Race {
   }
 
   drivePlayer(car, dt, controls) {
+    car.ghostTime = Math.max(0, car.ghostTime - dt);
+    if (car.recovery) {
+      this.recover(car, dt);
+      return;
+    }
     const track = this.track;
     const seg = track.findSegment(car.progress);
     const speedPct = car.speed / MAX_SPEED;
@@ -284,32 +307,86 @@ export class Race {
     else car.speed += DECEL * dt;
 
     const offRoad = Math.abs(car.offset) > 1;
-    if (offRoad) {
-      car.offTrackTime += dt;
-      if (car.speed > OFF_ROAD_LIMIT) car.speed += OFF_ROAD_DECEL * dt;
-      this.checkRoadsideHit(car, seg, dt);
-    }
     car.wallCooldown = Math.max(0, car.wallCooldown - dt);
     car.offset = clamp(car.offset, -2.6, 2.6);
+    if (offRoad) {
+      car.offTrackTime += dt;
+      car.offRoadFor += dt;
+      if (car.speed > OFF_ROAD_LIMIT) car.speed += OFF_ROAD_DECEL * dt;
+      if (this.checkRoadsideHit(car, seg)) return;
+      const stuck = car.speed < STUCK_SPEED && car.offRoadFor > STUCK_TIME;
+      if (stuck || car.offRoadFor > OFF_ROAD_RESCUE) {
+        this.startRecovery(car, false);
+        return;
+      }
+    } else {
+      car.offRoadFor = 0;
+    }
     this.limitSpeed(car, MAX_SPEED, dt);
     car.progress += car.speed * dt;
   }
 
-  checkRoadsideHit(car, seg, dt) {
-    if (car.wallCooldown > 0) return;
+  /** Returns true when the car crashed into a solid roadside object. */
+  checkRoadsideHit(car, seg) {
+    if (car.wallCooldown > 0) return false;
     for (const sprite of seg.sprites) {
       const type = SPRITE_TYPES[sprite.kind];
       if (!type.solid) continue;
       const w = (type.width / ROAD_WIDTH) * type.solid;
       const center = sprite.offset + (sprite.offset < 0 ? -1 : 1) * (type.width / ROAD_WIDTH) * 0.5;
       if (Math.abs(car.offset - center) < w / 2 + CAR_HALF) {
-        car.speed = Math.min(car.speed, MAX_SPEED * 0.12);
         car.wallCooldown = 0.8;
         car.wallHits++;
         this.events.push({ type: "wall", car });
-        return;
+        this.startRecovery(car, true);
+        return true;
       }
     }
+    return false;
+  }
+
+  /**
+   * Classic arcade recovery: after a crash the car stops, then slides sideways
+   * back onto the road; when merely stuck on the grass it keeps rolling while it
+   * slides. The driver's inputs are ignored until the car is back on the road.
+   */
+  startRecovery(car, crashed) {
+    car.recovery = {
+      crashed,
+      pause: crashed ? RECOVERY_PAUSE : 0,
+      target: (Math.sign(car.offset) || 1) * Math.min(Math.abs(car.offset), RECOVERY_OFFSET),
+      speed: crashed ? 0 : Math.min(car.speed, OFF_ROAD_LIMIT),
+    };
+    car.recoveries++;
+    car.nitroTime = 0;
+    car.braking = false;
+    if (crashed) car.speed = 0;
+    this.events.push({ type: "recovering", car, crashed });
+  }
+
+  recover(car, dt) {
+    const r = car.recovery;
+    car.steer = 0;
+    car.braking = false;
+    if (Math.abs(car.offset) > 1) car.offTrackTime += dt;
+    if (r.pause > 0) {
+      r.pause -= dt;
+    } else {
+      const step = RECOVERY_SLIDE * dt;
+      const move = clamp(r.target - car.offset, -step, step);
+      car.offset += move;
+      car.steer = Math.sign(move);
+      if (Math.abs(r.target - car.offset) < 1e-6) {
+        car.offset = r.target;
+        car.recovery = null;
+        car.offRoadFor = 0;
+        car.ghostTime = GHOST_TIME;
+        car.steer = 0;
+        this.events.push({ type: "recovered", car });
+      }
+    }
+    car.speed = Math.min(car.speed, r.speed);
+    car.progress += car.speed * dt;
   }
 
   /** Executes the car's current high-level decision (from the Decisions API or fallback). */
@@ -350,7 +427,7 @@ export class Race {
     // Never steer into a car that is alongside: stop short of its flank.
     const clearance = CAR_HALF * 2 + 0.04;
     for (const other of this.cars) {
-      if (other === car || Math.abs(this.deltaZ(car, other)) > CAR_LENGTH * 1.3) continue;
+      if (other === car || isGhost(other) || Math.abs(this.deltaZ(car, other)) > CAR_LENGTH * 1.3) continue;
       if (other.offset > car.offset && targetOffset > car.offset) {
         targetOffset = Math.min(targetOffset, Math.max(car.offset, other.offset - clearance));
       } else if (other.offset < car.offset && targetOffset < car.offset) {
@@ -390,6 +467,7 @@ export class Race {
       for (let j = i + 1; j < this.cars.length; j++) {
         const a = this.cars[i];
         const b = this.cars[j];
+        if (isGhost(a) || isGhost(b)) continue;
         const dz = this.deltaZ(a, b);
         const dx = b.offset - a.offset;
         if (Math.abs(dz) >= CAR_LENGTH || Math.abs(dx) >= width) continue;
