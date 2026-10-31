@@ -121,13 +121,31 @@ down past the controls to see every rival's decision and the Race Control ruling
 
 ![Annotated LUNA GP race screen on a phone in portrait](docs/images/mobile-overview.png)
 
+## Slipstream
+
+A fast car punches a hole in the air. A car tucked in close behind it meets less drag, so it gets a tow: the
+slipstream, or draft. Racers use it to close up on a straight, then pull out and pass.
+
+![Your car in Vega's slipstream on the start straight. The dashed cyan zone behind Vega is where a following car gets the tow, and the HUD shows ≋ SLIPSTREAM](docs/images/slipstream.png)
+
+The dashed cyan zone in the picture is Vega's slipstream. You're in a car's slipstream when you're:
+
+- 3 to 28 m behind it,
+- lined up with it, less than about three-quarters of a car width to either side, and
+- going faster than 150 km/h.
+
+While you're in it, your top speed goes up 6%, your nitro refills about six times faster (a boost's worth in about
+2.3 s instead of 14 s) and the HUD shows **≋ SLIPSTREAM**. Rivals get the same tow. Microsoft-Decision-1 can also send
+them looking for it: when it answers `slipstream`, the rival lines up behind the car ahead (its tag reads **≋ DRAFT**),
+and a later `overtake_left` or `overtake_right` pulls it out to pass.
+
 ## How Microsoft-Decision-1 is used
 
 The game asks the model **typed questions** about the current race situation and acts on the typed answers:
 
 | Who | When | Questions | What the game does with the answers |
 | --- | --- | --- | --- |
-| **Each rival driver** (5 cars) | About every 0.65–1.05 s in traffic and every 1.4–1.8 s otherwise | `choice` **maneuver**: racing line, overtake left/right, slipstream, defend, back off<br>`score` **pace**: Conserve → Race → Push → Flat out<br>`noul` **nitro**: fire now? | Steers toward the chosen line, sets target speed from the pace score, fires nitro when the probability clears the driver's personality threshold |
+| **Each rival driver** (5 cars) | About every 0.65–1.05 s in traffic and every 1.4–1.8 s otherwise | `choice` **maneuver**: racing line, overtake left/right, [slipstream](#slipstream), defend, back off<br>`score` **pace**: Conserve → Race → Push → Flat out<br>`noul` **nitro**: fire now? | Steers toward the chosen line, sets target speed from the pace score, fires nitro when the probability clears the driver's personality threshold |
 | **Race Control** | When you make contact with a rival | `choice` **responsible**: player / rival / racing incident<br>`score` **severity**: 0 light touch → 1 careless → 2 dangerous | Penalizes the responsible driver when the model is ≥ 60% sure and severity is ≥ 0.8: +2 s, or +5 s when severity is ≥ 1.5 |
 | **Debrief** | After the race | `score` **rating**: Rookie → Champion<br>`choice` **driver of the day**<br>`noul` **clean racer?** | Shown on the results screen |
 
