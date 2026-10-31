@@ -52,7 +52,7 @@ export class Input {
     this.pressed = new Set();
 
     target.addEventListener("keydown", (e) => {
-      if (e.target instanceof Element && e.target.closest("button, select, input, textarea")) return;
+      if (e.target instanceof Element && e.target.closest("a[href], button, select, input, textarea")) return;
       const held = HELD[e.code];
       const action = ACTIONS[e.code];
       if (held) this.keys[held] = true;

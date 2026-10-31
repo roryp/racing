@@ -12,6 +12,8 @@ questions (`choice`, `score`, `noul`) with probabilities instead of generating t
 Want to see how fast it is? The **Speed Duel** races two ways of asking the model the same questions, live. See
 [Speed duel](#speed-duel).
 
+The landing page's **View source on GitHub** link opens [this repository](https://github.com/roryp/racing) in a new tab.
+
 ## Race screen
 
 The race view combines the arcade driving HUD with live decision telemetry. The highlighted areas show where to
