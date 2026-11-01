@@ -144,6 +144,35 @@ While you're in it, your top speed goes up 6%, your nitro refills about six time
 them looking for it: when it answers `slipstream`, the rival lines up behind the car ahead (its tag reads **≋ DRAFT**),
 and a later `overtake_left` or `overtake_right` pulls it out to pass.
 
+## Strategy guide
+
+The tag above each rival (toggle with **L**) shows the maneuver Microsoft-Decision-1 just picked for it:
+
+| Tag | The rival is… | Your move |
+| --- | --- | --- |
+| **LINE** | on the racing line, with nothing to fight for | Pass on a straight; it isn't covering you |
+| **◀ OVERTAKE** / **OVERTAKE ▶** | pulling out to pass on that side, 2% faster | Hold your line; swerving into it gets you the blame |
+| **≋ DRAFT** | tucked in behind the car ahead, refilling its nitro | Expect an attack on the next straight; keep a boost to answer |
+| **■ DEFEND** | moving across to cover your line | Feint, then switch sides; once you're alongside, it won't steer into you |
+| **▼ BACK OFF** | easing off 6% to leave room | Take the gap |
+
+| Rival | Style | Fires nitro at |
+| --- | --- | --- |
+| Vega #7 (red) | Aggressive: late lunges, burns nitro early | p ≥ 0.50 |
+| Nova #11 (cyan) | Tactical: drafts, saves nitro for long straights and the last lap | p ≥ 0.65 |
+| Orion #3 (green) | Defensive: covers the line behind, rarely risks contact | p ≥ 0.60 |
+| Lyra #22 (purple) | Smooth: sticks to the racing line, passes only when it's easy | p ≥ 0.65 |
+| Rigel #9 (yellow) | Wildcard: bold moves at unexpected moments | p ≥ 0.50 |
+
+- **Nitro:** +22% top speed for 2.2 s, for 34% of the tank. Fire it on a long straight, to finish a pass or on the last
+  lap, never just before a sharp corner.
+- **Draft, then pass:** sit in a car's [slipstream](#slipstream) to refill nitro about six times faster, then pull out
+  and boost past.
+- **Race clean:** Race Control reviews your contacts with rivals. Hit a car from behind or swerve into it and the blame
+  is usually yours: +2 s for careless contact, +5 s for dangerous. Rivals that cut across you can be penalized too.
+- **Stay on the road:** a crash stops you dead, and getting back up to speed costs far more than lifting for a corner.
+- **Debrief:** gain places, pass cleanly and stay on track to earn a Champion rating and driver of the day.
+
 ## How Microsoft-Decision-1 is used
 
 The game asks the model **typed questions** about the current race situation and acts on the typed answers:
