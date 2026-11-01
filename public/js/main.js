@@ -95,12 +95,15 @@ function setTouchControls(visible) {
   touchPad.classList.toggle("hidden", !visible);
 }
 
-// ---- sound, AI tags & full screen (keys on desktop, buttons in the pause menu) -------
+// ---- sound, music, AI tags & full screen (keys on desktop, buttons in the pause menu) -------
 
 function syncToggles() {
   const soundButton = $("btn-sound");
   soundButton.textContent = sound.muted ? "🔇 Sound off" : "🔊 Sound on";
   soundButton.setAttribute("aria-pressed", String(!sound.muted));
+  const musicButton = $("btn-music");
+  musicButton.textContent = sound.musicOn ? "🎵 Music on" : "🎵 Music off";
+  musicButton.setAttribute("aria-pressed", String(sound.musicOn));
   const labelsButton = $("btn-labels");
   labelsButton.textContent = settings.labels ? "🏷️ AI tags on" : "🏷️ AI tags off";
   labelsButton.setAttribute("aria-pressed", String(settings.labels));
@@ -108,6 +111,11 @@ function syncToggles() {
 
 function toggleSound() {
   sound.setMuted(!sound.muted);
+  syncToggles();
+}
+
+function toggleMusic() {
+  sound.setMusicOn(!sound.musicOn);
   syncToggles();
 }
 
@@ -161,6 +169,7 @@ function captureFrame() {
 function startRace() {
   saveSettings();
   sound.ensure();
+  sound.stopMusic();
   document.activeElement?.blur?.();
   brains?.stop();
   control?.stop();
@@ -216,6 +225,7 @@ function quitToMenu() {
   setOverlay("menu", true);
   setTouchControls(false);
   sound.engine(0, false, false);
+  sound.stopMusic();
 }
 
 function togglePause(force) {
@@ -223,11 +233,13 @@ function togglePause(force) {
     screen = "paused";
     setOverlay("pause", true);
     sound.engine(0, false, false);
+    sound.pauseMusic();
   } else if (screen === "paused" && force !== true) {
     screen = "race";
     setOverlay("pause", false);
     document.activeElement?.blur?.();
     input.reset();
+    sound.resumeMusic();
   }
 }
 
@@ -240,6 +252,7 @@ async function showResults() {
   setOverlay("results", true);
   setTouchControls(false);
   sound.engine(0, false, false);
+  sound.stopMusic(2.5);
 
   if (!(brains?.mode === "api")) {
     hud.debriefPending("The AI debrief uses the Decisions API. It's unavailable in offline mode.");
@@ -268,6 +281,7 @@ function handleEvent(event) {
     case "go":
       hud.countdown(0);
       sound.beep(880, 0.5);
+      sound.playMusic();
       break;
     case "lap":
       hud.flash(
@@ -334,7 +348,7 @@ function step(dt) {
 
   for (const event of race.drainEvents()) handleEvent(event);
   shake = Math.max(0, shake - dt * 30);
-  if (!resultsShown) sound.engine(player.speed / MAX_SPEED, player.nitroTime > 0, race.phase !== "grid");
+  if (!resultsShown) sound.engine(player.speed / MAX_SPEED, player.nitroTime > 0, race.phase !== "grid", dt);
 }
 
 function handleKeys() {
@@ -342,6 +356,10 @@ function handleKeys() {
   if (input.consume("mute")) {
     toggleSound();
     hud.ticker(sound.muted ? "Sound off (M)" : "Sound on (M)");
+  }
+  if (input.consume("music")) {
+    toggleMusic();
+    hud.ticker(sound.musicOn ? "Music on (B)" : "Music off (B)");
   }
   if (input.consume("labels")) {
     toggleLabels();
@@ -392,6 +410,7 @@ $("btn-quit").addEventListener("click", quitToMenu);
 $("btn-again").addEventListener("click", startRace);
 $("btn-menu").addEventListener("click", quitToMenu);
 $("btn-sound").addEventListener("click", toggleSound);
+$("btn-music").addEventListener("click", toggleMusic);
 $("btn-labels").addEventListener("click", toggleLabels);
 for (const button of fullscreenButtons) button.addEventListener("click", toggleFullscreen);
 document.addEventListener("fullscreenchange", syncFullscreen);

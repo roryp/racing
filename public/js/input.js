@@ -16,6 +16,7 @@ const ACTIONS = {
   Escape: "pause",
   KeyP: "pause",
   KeyM: "mute",
+  KeyB: "music",
   KeyL: "labels",
   Enter: "confirm",
 };

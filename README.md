@@ -101,10 +101,15 @@ rivals use offline heuristics.
 | P (or Esc)           | Pause                                           |
 | L                    | Toggle the AI decision tags above rival cars    |
 | M                    | Mute                                            |
+| B                    | Music on/off                                    |
 | Enter                | Start / race again                              |
 
 Stay on the road: trees, lamps and billboards stop you dead. Like the old arcade racers, a crash (or getting stuck on the
 grass) slides your car back onto the road; it blinks for a moment while other cars pass through it, then you race on.
+
+The soundtrack is an original synthwave tune in the style of the 80s and 90s arcade racers. It's composed in code
+(`public/js/music.js`) and synthesized live with WebAudio, so the game ships no audio files. It starts at the green
+light, pauses with the game and fades out at the finish.
 
 ### On a phone or tablet
 
@@ -112,7 +117,7 @@ Touch screens get on-screen controls: **◀ ▶** to steer (slide your thumb fro
 and **NITRO** (the button fills with the tank and glows when a boost is ready), and **❚❚** to pause. NITRO sits just
 above GAS and keeps the throttle on, so boost by sliding your throttle thumb up onto it (holding it fires again as soon
 as the tank allows) and slide back down to GAS afterwards. The pause menu
-has sound and AI-tag switches, plus **⛶ Full screen** where the browser supports it (on Android it also locks the
+has sound, music and AI-tag switches, plus **⛶ Full screen** where the browser supports it (on Android it also locks the
 screen to landscape). Hold the phone sideways for the biggest race view; in portrait the controls sit under the race
 view, with the Pit Wall below them.
 
@@ -266,6 +271,7 @@ public/js/control.js  Race Control reviews and penalties
 public/js/input.js    Keyboard and touch controls (multi-touch pads)
 public/js/render.js   Pseudo-3D road renderer; public/js/art.js draws all sprites in code
 public/js/hud.js      HUD, minimap, Pit Wall, results and debrief
+public/js/audio.js    Engine sound and effects; public/js/music.js composes and plays the soundtrack
 public/duel.html      Speed duel page; public/js/duel.js runs and draws it, public/js/stats.js computes latency stats
 test/                 node:test suites
 ```
@@ -277,5 +283,6 @@ npm test
 ```
 
 The tests cover the Foundry client (request/answer translation, with `fetch` mocked), Entra ID / managed identity token
-handling, the prompt builders and input validation, the duel contenders and latency statistics, and a headless race
+handling, the prompt builders and input validation, the duel contenders and latency statistics, the engine sound and
+the soundtrack's score, and a headless race
 simulation that checks the payloads the game sends are accepted by the server. The tests make no network calls.

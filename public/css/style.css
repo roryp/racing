@@ -486,6 +486,10 @@ button.primary {
   font-size: 14px;
 }
 
+.toggles button:last-child:nth-child(odd) {
+  grid-column: 1 / -1;
+}
+
 .toggles button[aria-pressed="false"] {
   color: var(--muted);
 }
