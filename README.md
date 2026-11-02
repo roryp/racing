@@ -2,342 +2,119 @@
 
 ![LUNA GP under a full moon](docs/images/luna-gp-cover.png)
 
-A pseudo-3D night-time arcade racer in which every rival driver, the race stewards and the post-race debrief are powered by
-[Microsoft-Decision-1](https://ai.azure.com/catalog/models/Microsoft-Decision-1) on Microsoft Foundry
-(`POST <foundry-endpoint>/providers/microsoft/v1/systemone`).
+A pseudo-3D night-time arcade racer whose rival drivers, race stewards and post-race debrief are powered by
+[Microsoft-Decision-1](https://ai.azure.com/catalog/models/Microsoft-Decision-1) on Microsoft Foundry. You drive and the
+game handles physics; the model answers typed questions (`choice`, `score`, `noul`) with probabilities instead of text.
 
-You drive. The game engine handles physics. Microsoft-Decision-1 makes the rivals' tactical calls: it answers typed
-questions (`choice`, `score`, `noul`) with probabilities instead of generating text.
-
-Want to see how fast it is? The **Speed Duel** races two ways of asking the model the same questions, live. See
-[Speed duel](#speed-duel).
-
-The landing page's **View source on GitHub** link opens [this repository](https://github.com/roryp/racing) in a new tab.
-
-## Race screen
-
-The race view combines the arcade driving HUD with live decision telemetry. The highlighted areas show where to
-find race progress, driving information, rival decisions and Race Control rulings.
+Play it at [aka.ms/racing](https://aka.ms/racing).
 
 ![Annotated LUNA GP race screen](docs/images/race-overview.png)
 
-## Azure deployment
-
-On Azure, the game runs on App Service and talks to the model with its **system-assigned managed identity** (no keys):
-
-| Resource | Name |
-| --- | --- |
-| Web app (Linux, Node 22, P0v3) | `luna-gp-<unique>` |
-| Foundry resource | `<foundry-resource>` |
-| Model deployment | `decision-1-dz`: Microsoft-Decision-1 v1, **DataZoneStandard**, 500 requests/min |
-| Role assignment | web app identity → **Cognitive Services User** on the Foundry resource |
-
-Put the web app in a region inside the model deployment's data zone, so requests stay inside that data zone.
-
-**Throughput:** a deployment with capacity 500 allows up to 500 requests/min. A race makes about
-250 rival calls a minute, so one deployment supports about two simultaneous races. For more, add deployments in other
-quota pools (GlobalStandard, or another data zone) or request a quota increase in the Foundry portal.
-
-> The web app is public and unauthenticated: anyone with the URL can call the API, which uses your model quota and is
-> billed to the subscription. The server caps work at 64 decisions in flight and at `DAILY_CALL_LIMIT` model calls per
-> UTC day (default 20,000, about $0.50 a day); after that, rivals use offline heuristics until the next day. Stop the app
-> (`az webapp stop -g <resource-group> -n <app-name>`) when you're not using it.
-
-### Deploy it yourself
-
-```powershell
-$rg = "<resource-group>"; $app = "luna-gp-<unique>"; $plan = "<app-service-plan>"; $foundry = "<foundry-resource>"
-
-# 1. Model: Microsoft-Decision-1 (deployment names can't contain "Microsoft")
-az cognitiveservices account deployment create -g $rg -n $foundry --deployment-name decision-1-dz `
-  --model-name Microsoft-Decision-1 --model-version 1 --model-format Microsoft `
-  --sku-name DataZoneStandard --sku-capacity 500
-
-# 2. Web app with a system-assigned managed identity (Premium v3, P0v3)
-az appservice plan create -g $rg -n $plan -l centralus --is-linux --sku P0v3
-# (to move an existing plan to this size: az appservice plan update -g $rg -n $plan --sku P0v3)
-az webapp create -g $rg -p $plan -n $app --runtime "NODE:22-lts" --assign-identity "[system]"
-az webapp config set -g $rg -n $app --startup-file "node server.js" --always-on true --min-tls-version 1.2 --ftps-state Disabled
-az webapp update -g $rg -n $app --https-only true
-
-# 3. Let the identity call the model
-$principal = az webapp identity show -g $rg -n $app --query principalId -o tsv
-$scope = az cognitiveservices account show -g $rg -n $foundry --query id -o tsv
-az role assignment create --assignee-object-id $principal --assignee-principal-type ServicePrincipal `
-  --role "Cognitive Services User" --scope $scope
-
-# 4. Settings (no secrets) and code
-az webapp config appsettings set -g $rg -n $app --settings `
-  FOUNDRY_ENDPOINT=https://$foundry.cognitiveservices.azure.com FOUNDRY_DEPLOYMENT=decision-1-dz HOST=0.0.0.0
-# zip server.js, package.json, lib/ and public/ (no dependencies to install; tar writes forward-slash paths), then deploy:
-tar -a -c -f luna-gp.zip server.js package.json lib public
-az webapp deploy -g $rg -n $app --src-path luna-gp.zip --type zip
-```
-
 ## Run it locally
 
-Requirements: Node.js 20+, the Azure CLI signed in (`az login`) with access to the Foundry resource, and
-`FOUNDRY_ENDPOINT`. There are no npm dependencies, so there's nothing to install.
+Requires Node.js 20+ and the Azure CLI signed in (`az login`) with access to the Foundry resource. There are no npm
+dependencies.
 
 ```powershell
 $env:FOUNDRY_ENDPOINT = "https://<foundry-resource>.cognitiveservices.azure.com"
 npm start
 ```
 
-Open <http://127.0.0.1:3000> and press **Start race**. For the speed test, open <http://127.0.0.1:3000/duel.html>.
-
-Credentials stay on the server; the browser only talks to the local server. On Windows, the server also reads the
-`FOUNDRY_*` variables from your saved user/system environment. Without `FOUNDRY_ENDPOINT`, the game still runs and the
-rivals use offline heuristics.
+Open <http://127.0.0.1:3000>. Without `FOUNDRY_ENDPOINT`, the rivals use offline heuristics.
 
 ## Controls
 
-| Key                  | Action                                          |
-| -------------------- | ----------------------------------------------- |
-| ← → (or A D)         | Steer                                           |
-| ↑ (or W)             | Throttle                                        |
-| ↓ (or S)             | Brake                                           |
-| Space (or Shift)     | Nitro (recharges faster in a slipstream)        |
-| P (or Esc)           | Pause                                           |
-| L                    | Toggle the AI decision tags above rival cars    |
-| M                    | Mute                                            |
-| B                    | Music on/off                                    |
-| Enter                | Start / race again                              |
+| Key              | Action                                 |
+| ---------------- | -------------------------------------- |
+| ← → (or A D)     | Steer                                  |
+| ↑ / ↓ (or W / S) | Throttle / brake                       |
+| Space (or Shift) | Nitro (recharges faster in a slipstream) |
+| P (or Esc)       | Pause                                  |
+| L                | Toggle the AI tags above rival cars    |
+| M / B            | Mute / music on and off                |
+| Enter            | Start / race again                     |
 
-Stay on the road: trees, lamps and billboards stop you dead. Like the old arcade racers, a crash (or getting stuck on the
-grass) slides your car back onto the road; it blinks for a moment while other cars pass through it, then you race on.
-
-The soundtrack is an original synthwave tune in the style of the 80s and 90s arcade racers. It's composed in code
-(`public/js/music.js`) and synthesized live with WebAudio, so the game ships no audio files. It starts at the green
-light, pauses with the game and fades out at the finish.
-
-### On a phone or tablet
-
-Touch screens get on-screen controls: **◀ ▶** to steer (slide your thumb from one to the other), **GAS**, **BRAKE**
-and **NITRO** (the button fills with the tank and glows when a boost is ready), and **❚❚** to pause. NITRO sits just
-above GAS and keeps the throttle on, so boost by sliding your throttle thumb up onto it (holding it fires again as soon
-as the tank allows) and slide back down to GAS afterwards. The pause menu
-has sound, music and AI-tag switches, plus **⛶ Full screen** where the browser supports it (on Android it also locks the
-screen to landscape). Hold the phone sideways for the biggest race view; in portrait the controls sit under the race
-view, with the Pit Wall below them.
-
-In portrait, the highlighted areas show the race HUD (1–5), the touch controls (6–9) and the Pit Wall (10–14). Scroll
-down past the controls to see every rival's decision and the Race Control rulings.
+Touch screens get on-screen steering, GAS, BRAKE and NITRO buttons; hold the phone sideways for the biggest view.
 
 ![Annotated LUNA GP race screen on a phone in portrait](docs/images/mobile-overview.png)
 
-## Slipstream
+## Slipstream and strategy
 
-A fast car punches a hole in the air. A car tucked in close behind it meets less drag, so it gets a tow: the
-slipstream, or draft. Racers use it to close up on a straight, then pull out and pass.
+![Your car in Vega's slipstream](docs/images/slipstream.png)
 
-![Your car in Vega's slipstream on the start straight. The dashed cyan zone behind Vega is where a following car gets the tow, and the HUD shows ≋ SLIPSTREAM](docs/images/slipstream.png)
+Within 3–28 m behind a car, lined up with it and above 150 km/h, you get a tow: +6% top speed and nitro refills about six
+times faster. Nitro gives +22% top speed for 2.2 s. Race Control penalizes contact: +2 s careless, +5 s dangerous.
 
-The dashed cyan zone in the picture is Vega's slipstream. You're in a car's slipstream when you're:
-
-- 3 to 28 m behind it,
-- lined up with it, less than about three-quarters of a car width to either side, and
-- going faster than 150 km/h.
-
-While you're in it, your top speed goes up 6%, your nitro refills about six times faster (a boost's worth in about
-2.3 s instead of 14 s) and the HUD shows **≋ SLIPSTREAM**. Rivals get the same tow. Microsoft-Decision-1 can also send
-them looking for it: when it answers `slipstream`, the rival lines up behind the car ahead (its tag reads **≋ DRAFT**),
-and a later `overtake_left` or `overtake_right` pulls it out to pass.
-
-## Strategy guide
-
-The tag above each rival (toggle with **L**) shows the maneuver Microsoft-Decision-1 just picked for it:
+The tag above each rival shows its latest maneuver:
 
 | Tag | The rival is… | Your move |
 | --- | --- | --- |
-| **LINE** | on the racing line, with nothing to fight for | Pass on a straight; it isn't covering you |
-| **◀ OVERTAKE** / **OVERTAKE ▶** | pulling out to pass on that side, 2% faster | Hold your line; swerving into it gets you the blame |
-| **≋ DRAFT** | tucked in behind the car ahead, refilling its nitro | Expect an attack on the next straight; keep a boost to answer |
-| **■ DEFEND** | moving across to cover your line | Feint, then switch sides; once you're alongside, it won't steer into you |
-| **▼ BACK OFF** | easing off 6% to leave room | Take the gap |
-
-| Rival | Style | Fires nitro at |
-| --- | --- | --- |
-| Vega #7 (red) | Aggressive: late lunges, burns nitro early | p ≥ 0.50 |
-| Nova #11 (cyan) | Tactical: drafts, saves nitro for long straights and the last lap | p ≥ 0.65 |
-| Orion #3 (green) | Defensive: covers the line behind, rarely risks contact | p ≥ 0.60 |
-| Lyra #22 (purple) | Smooth: sticks to the racing line, passes only when it's easy | p ≥ 0.65 |
-| Rigel #9 (yellow) | Wildcard: bold moves at unexpected moments | p ≥ 0.50 |
-
-- **Nitro:** +22% top speed for 2.2 s, for 34% of the tank. Fire it on a long straight, to finish a pass or on the last
-  lap, never just before a sharp corner.
-- **Draft, then pass:** sit in a car's [slipstream](#slipstream) to refill nitro about six times faster, then pull out
-  and boost past.
-- **Race clean:** Race Control reviews your contacts with rivals. Hit a car from behind or swerve into it and the blame
-  is usually yours: +2 s for careless contact, +5 s for dangerous. Rivals that cut across you can be penalized too.
-- **Stay on the road:** a crash stops you dead, and getting back up to speed costs far more than lifting for a corner.
-- **Debrief:** gain places, pass cleanly and stay on track to earn a Champion rating and driver of the day.
+| **LINE** | on the racing line | Pass on a straight |
+| **◀ OVERTAKE** / **OVERTAKE ▶** | pulling out to pass | Hold your line |
+| **≋ DRAFT** | in the slipstream of the car ahead | Keep a boost to answer its attack |
+| **■ DEFEND** | covering your line | Feint, then switch sides |
+| **▼ BACK OFF** | leaving room | Take the gap |
 
 ## How Microsoft-Decision-1 is used
 
-The game asks the model **typed questions** about the current race situation and acts on the typed answers:
+| Who | When | Questions |
+| --- | --- | --- |
+| **Each rival** (5 cars) | Every 0.65–1.8 s | `choice` maneuver, `score` pace, `noul` fire nitro? |
+| **Race Control** | After contact with a rival | `choice` who is responsible, `score` severity |
+| **Debrief** | After the race | `score` rating, `choice` driver of the day, `noul` clean racer? |
 
-| Who | When | Questions | What the game does with the answers |
-| --- | --- | --- | --- |
-| **Each rival driver** (5 cars) | About every 0.65–1.05 s in traffic and every 1.4–1.8 s otherwise | `choice` **maneuver**: racing line, overtake left/right, [slipstream](#slipstream), defend, back off<br>`score` **pace**: Conserve → Race → Push → Flat out<br>`noul` **nitro**: fire now? | Steers toward the chosen line, sets target speed from the pace score, fires nitro when the probability clears the driver's personality threshold |
-| **Race Control** | When you make contact with a rival | `choice` **responsible**: player / rival / racing incident<br>`score` **severity**: 0 light touch → 1 careless → 2 dangerous | Penalizes the responsible driver when the model is ≥ 60% sure and severity is ≥ 0.8: +2 s, or +5 s when severity is ≥ 1.5 |
-| **Debrief** | After the race | `score` **rating**: Rookie → Champion<br>`choice` **driver of the day**<br>`noul` **clean racer?** | Shown on the results screen |
+Each request describes the situation in plain text from that driver's point of view. If the API fails, rivals fall back
+to offline heuristics and the race carries on. A rival decision is about 630 input tokens, and a race makes about 250
+calls a minute.
 
-A rival request describes the situation from that driver's point of view in plain text, for example:
+## Deploy to Azure
 
-```text
-Arcade circuit race, 3 laps, 6 cars. Driver under review: Nova (#11).
-Personality: Tactical: patient, uses the slipstream and saves nitro to time attacks for long straights and the final lap.
-Race situation: FINAL LAP (3 of 3); running P2 of 6, 0.6 s behind the leader.
-Car: 262 km/h (top speed 285 km/h), in the center of the road, nitro tank 70%.
-Track ahead: currently on a straight with 420 m to go.
-Car ahead: the human player, 35 m ahead, directly in line, 8 km/h slower (Nova is closing in). Room to pass it: left side wide open, right side wide open.
-Car behind: none within 100 m.
-```
-
-…and the model answers with `overtake_left` (p = 0.84), pace 2.81 ("Flat out") and nitro p = 0.95.
-
-The **Pit Wall** panel shows the answers live: each rival's maneuver probability distribution, pace score,
-nitro probability against its firing threshold, and round-trip latency. It also shows total calls, average latency,
-input tokens and cost. Race Control rulings appear below the rival cards.
-
-If the API fails or is unreachable, the affected rivals switch to an offline heuristic. Their cards show
-`FALLBACK`/`LOCAL`, and the race carries on. The game reconnects automatically once the API responds again. You can also
-choose **Offline heuristics** in the menu.
-
-**Cost:** Microsoft-Decision-1 is billed per token ($0.04 per 1M tokens, one rate for input and output). A rival
-decision is about 630 input tokens and 3 output tokens, and a race makes roughly 250 rival calls a minute, so racing
-costs about 0.6 cents a minute, or about 1.5 cents for a 3-lap race (about 2.5 minutes).
-
-The model is text-only, so Race Control judges contacts from the telemetry alone (no camera frame is sent).
-
-## Speed duel
-
-Two cars race on a drag strip. Both ask **Microsoft-Decision-1** the same race situations and the same three
-rival-driver questions: a `choice` (which maneuver?), a `score` (how hard to push?) and a `noul` (fire nitro?). Each
-answer moves that car one step toward the flag, and the car whose answers took less time in total wins.
-
-- **Cyan car:** one call that asks all three questions together.
-- **Orange car:** the opponent you pick:
-
-| Opponent | How it asks |
-| --- | --- |
-| 3 parallel calls | One question per call, all three sent at once; the decision is done when the slowest answers |
-| 3 sequential calls | One question per call, each sent after the previous one answers |
-
-![Annotated LUNA GP Speed Duel screen](docs/images/duel-overview.png)
-
-1. Open `/duel.html`. The game's main menu doesn't link to it, so race demos stay focused on the race.
-2. Pick an opponent and how many race decisions each car must answer (5, 10 or 20).
-3. Press **Start duel** (or Enter).
-
-The game server times every decision, from sending the first request until the last byte of the last answer arrives
-(waiting for an auth token never counts). A car's time is the sum of its decision times, so the trip between your
-browser and the game server doesn't count either; the result says how much time that trip added. Totals less than 5%
-apart are a dead heat. Each car's card also shows the input tokens it used per decision, which is what you pay for.
-One untimed warm-up call per car runs during the countdown. At the finish, you can copy the result or show every
-answer side by side.
-
-### Benchmark from the command line
+The game runs on App Service (Linux, Node 22) and calls the model with its system-assigned managed identity.
 
 ```powershell
-$env:FOUNDRY_ENDPOINT = "https://<foundry-resource>.cognitiveservices.azure.com"
-npm run bench                               # 1 call vs 3 parallel and 3 sequential calls
-npm run bench -- --rounds 3                 # 3 samples per race situation
-npm run bench -- --opponents split-parallel
-npm run bench -- --json                     # machine-readable output
+$rg = "<resource-group>"; $app = "luna-gp-<unique>"; $plan = "<app-service-plan>"; $foundry = "<foundry-resource>"
+
+az cognitiveservices account deployment create -g $rg -n $foundry --deployment-name decision-1-dz `
+  --model-name Microsoft-Decision-1 --model-version 1 --model-format Microsoft --sku-name DataZoneStandard --sku-capacity 500
+az appservice plan create -g $rg -n $plan -l centralus --is-linux --sku P0v3
+az webapp create -g $rg -p $plan -n $app --runtime "NODE:22-lts" --assign-identity "[system]"
+az webapp config set -g $rg -n $app --startup-file "node server.js" --always-on true --min-tls-version 1.2 --ftps-state Disabled
+az webapp update -g $rg -n $app --https-only true
+
+$principal = az webapp identity show -g $rg -n $app --query principalId -o tsv
+$scope = az cognitiveservices account show -g $rg -n $foundry --query id -o tsv
+az role assignment create --assignee-object-id $principal --assignee-principal-type ServicePrincipal `
+  --role "Cognitive Services User" --scope $scope
+
+az webapp config appsettings set -g $rg -n $app --settings `
+  FOUNDRY_ENDPOINT=https://$foundry.cognitiveservices.azure.com FOUNDRY_DEPLOYMENT=decision-1-dz HOST=0.0.0.0
+tar -a -c -f luna-gp.zip server.js package.json lib public
+az webapp deploy -g $rg -n $app --src-path luna-gp.zip --type zip
 ```
 
-Medians less than 5% apart are reported as a dead heat.
-
-### Our results
-
-Measured on 11 October 2026 against `decision-1-dz`:
-
-| Setup | From a dev machine in Europe (median) | From the Azure web app (median, duel) |
-| --- | ---: | ---: |
-| 1 call, 3 questions | 392 ms | 235 ms |
-| 3 parallel calls | 366 ms | 216 ms |
-| 3 sequential calls | 1.01 s | – |
-
-Parallel single-question calls are about as fast as one batched call but use ~65% more input tokens (956 vs 583), because
-the race situation is sent three times. Sequential calls are about 2.6× slower. All setups picked the same maneuver in
-9–10 of 10 situations.
-
-## Load test
-
-`npm run loadtest` races headless bot players against a game server. Each bot runs the game's own race simulation and
-calls the server the way the browser does. The test adds players step by step (1, 2, 4 and 8 by default, a minute each),
-and `npm run loadtest -- chart` draws the runs and predicts how many players fit.
-
-![How many LUNA GP players at once? Model calls per minute for 1 to 16 players, before and after raising the game server's in-flight cap from 16 to 64, with the predicted limits](docs/images/load-test.png)
-
-On the live game (2 November 2026), each player made about 254 model calls a minute next to Azure, and about 207 from
-Johannesburg. With at most 16 calls in flight, the game server turned away 21% of the calls at 16 players. With 64
-(`MAX_IN_FLIGHT` in `lib/limits.js`) it turned none away, so the model deployment is now the limit: 10,200 calls a
-minute, about 32 players with 20% kept free. The daily cap of 20,000 calls is about 79 player-minutes of racing.
-
-```powershell
-npm run loadtest -- --target https://aka.ms/racing --label "From Johannesburg" --where "bots on the internet" --out far.json
-npm run loadtest -- chart near.json far.json --before near-cap16.json --before-max-in-flight 16 --rpm 10200 --tpm 10200000 --out docs/images/load-test.svg
-```
-
-For the runs next to Azure, the bots ran inside the web app's container (`az webapp create-remote-connection`, then SSH),
-against `http://127.0.0.1:8080`. Load tests spend real model calls and count against the daily cap. The runs are in
-[`docs/load-test/`](docs/load-test/), and `npm run loadtest -- --help` lists every option.
+The app is public: the server caps work at 64 calls in flight and `DAILY_CALL_LIMIT` model calls a UTC day, then rivals
+use offline heuristics.
 
 ## Configuration
 
-| Variable             | Default         | Purpose                                                                 |
-| -------------------- | --------------- | ----------------------------------------------------------------------- |
-| `FOUNDRY_ENDPOINT`   | –               | Foundry resource endpoint (required for AI rivals)                      |
-| `FOUNDRY_DEPLOYMENT` | `decision-1-dz` | Microsoft-Decision-1 deployment name                                    |
-| `FOUNDRY_API_KEY`    | unset           | Optional key auth; leave unset to use Microsoft Entra ID                |
-| `PORT`               | `3000`          | HTTP port (App Service sets this)                                       |
-| `HOST`               | `127.0.0.1`     | Bind address (`0.0.0.0` on App Service)                                 |
-| `DAILY_CALL_LIMIT`   | `20000`         | Most model calls per UTC day (per server process); then the API returns 429 |
-| `LOG_DECISIONS`      | unset           | Set to `1` to log every decision and duel call                          |
+| Variable             | Default         | Purpose                                                  |
+| -------------------- | --------------- | -------------------------------------------------------- |
+| `FOUNDRY_ENDPOINT`   | –               | Foundry resource endpoint (required for AI rivals)       |
+| `FOUNDRY_DEPLOYMENT` | `decision-1-dz` | Model deployment name                                    |
+| `FOUNDRY_API_KEY`    | unset           | Optional key auth; otherwise managed identity or Azure CLI |
+| `PORT` / `HOST`      | `3000` / `127.0.0.1` | Listen address (`0.0.0.0` on App Service)           |
+| `DAILY_CALL_LIMIT`   | `20000`         | Most model calls per UTC day                             |
+| `LOG_DECISIONS`      | unset           | `1` logs every decision                                  |
 
-**Authentication** (first match wins): `FOUNDRY_API_KEY` → the App Service **managed identity** (detected from
-`IDENTITY_ENDPOINT`/`IDENTITY_HEADER`) → the local **Azure CLI** login. Entra ID tokens are cached and refreshed five
-minutes before they expire, and the server fetches the first token at startup.
+## Speed duel and load test
 
-The server rejects cross-origin requests (and, when bound to localhost, unexpected `Host` headers), and it validates and
-clamps every field before building a request, so other web pages can't spend your quota or inject their own questions.
+- **Speed duel** (`/duel.html`, or `npm run bench`): races one batched call against three parallel or sequential
+  single-question calls. One batched call is as fast as parallel calls and uses about 40% fewer tokens.
+- **Load test** (`npm run loadtest`): bot players race against a game server and `npm run loadtest -- chart` predicts
+  how many fit. Runs are in [`docs/load-test/`](docs/load-test/); `--help` lists the options.
 
-## Project layout
-
-```text
-server.js             Static files + /api/rival, /api/steward, /api/debrief, /api/duel, /api/status
-bench.js              Command-line speed test (npm run bench)
-loadtest.js           Command-line load test and capacity chart (npm run loadtest)
-lib/foundry.js        Foundry config and auth: API key, managed identity, or Azure CLI token
-lib/decisions.js      Microsoft-Decision-1 client; translates questions/answers to and from the systemone format
-lib/openai.js         Shared fetch helper: timeouts, errors and round-trip timing
-lib/benchmark.js      Duel race situations and contenders (batched, parallel, sequential)
-lib/prompts.js        Builds the evidence text and typed questions; validates all browser input
-lib/env.js            Reads variables from the process env, then the saved Windows environment
-lib/limits.js         Server limits: calls in flight and model calls per day
-lib/loadtest.js       Load test bots; lib/capacity.js predicts capacity and lib/capacity-chart.js draws the chart
-public/js/race.js     Physics, rival driving, contacts, laps, standings and API payloads
-public/js/rivals.js   Per-rival decision scheduling, nitro thresholds, offline fallback
-public/js/control.js  Race Control reviews and penalties
-public/js/input.js    Keyboard and touch controls (multi-touch pads)
-public/js/render.js   Pseudo-3D road renderer; public/js/art.js draws all sprites in code
-public/js/hud.js      HUD, minimap, Pit Wall, results and debrief
-public/js/audio.js    Engine sound and effects; public/js/music.js composes and plays the soundtrack
-public/duel.html      Speed duel page; public/js/duel.js runs and draws it, public/js/stats.js computes latency stats
-test/                 node:test suites
-```
+![How many LUNA GP players at once?](docs/images/load-test.png)
 
 ## Tests
 
-```powershell
-npm test
-```
-
-The tests cover the Foundry client (request/answer translation, with `fetch` mocked), Entra ID / managed identity token
-handling, the prompt builders and input validation, the duel contenders and latency statistics, the engine sound and
-the soundtrack's score, a headless race
-simulation that checks the payloads the game sends are accepted by the server, and the load test. The tests make no
-network calls.
+`npm test` runs the node:test suites; they make no network calls.
