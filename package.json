@@ -8,6 +8,7 @@
   "scripts": {
     "start": "node server.js",
     "bench": "node bench.js",
+    "loadtest": "node loadtest.js",
     "test": "node --test"
   },
   "engines": {

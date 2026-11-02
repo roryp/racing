@@ -1,0 +1,239 @@
+{
+  "tool": "luna-gp-loadtest",
+  "version": 1,
+  "label": "Next to Azure",
+  "where": "bots inside the app's container",
+  "target": "http://127.0.0.1:8080",
+  "model": "Microsoft-Decision-1 (decision-1-dz)",
+  "networkRttMs": 1.9,
+  "startedAt": "2026-11-02T15:01:03.744Z",
+  "settings": {
+    "players": [
+      1,
+      2,
+      4,
+      8,
+      16
+    ],
+    "stepSeconds": 60,
+    "settleSeconds": 5,
+    "betweenRacesSeconds": 5,
+    "laps": 3
+  },
+  "host": {
+    "cpus": 2,
+    "node": "v22.23.4",
+    "serverCpuMeasured": true
+  },
+  "stopReason": null,
+  "steps": [
+    {
+      "players": 1,
+      "seconds": 55,
+      "requests": 209,
+      "answered": 208,
+      "errors": {
+        "busy": 0,
+        "rateLimited": 0,
+        "dailyLimit": 0,
+        "upstream": 0,
+        "timeout": 1,
+        "network": 0,
+        "other": 0
+      },
+      "byKind": {
+        "rival": 208,
+        "debrief": 1
+      },
+      "modelCallsPerMin": 226.9,
+      "tokensPerMin": 142052,
+      "tokensPerCall": 626,
+      "modelMs": {
+        "p50": 234,
+        "p90": 340,
+        "mean": 259
+      },
+      "roundTripMs": {
+        "p50": 236,
+        "p90": 343,
+        "mean": 261
+      },
+      "serverInFlight": 0.98,
+      "decisions": {
+        "model": 207,
+        "fallback": 1
+      },
+      "serverCpuPct": 2.5,
+      "botCpuPct": 2.1,
+      "startedAt": "2026-11-02T15:01:09.064Z",
+      "complete": true
+    },
+    {
+      "players": 2,
+      "seconds": 55,
+      "requests": 492,
+      "answered": 492,
+      "errors": {
+        "busy": 0,
+        "rateLimited": 0,
+        "dailyLimit": 0,
+        "upstream": 0,
+        "timeout": 0,
+        "network": 0,
+        "other": 0
+      },
+      "byKind": {
+        "rival": 489,
+        "steward": 3
+      },
+      "modelCallsPerMin": 536.7,
+      "tokensPerMin": 336917,
+      "tokensPerCall": 627.7,
+      "modelMs": {
+        "p50": 231,
+        "p90": 319,
+        "mean": 247
+      },
+      "roundTripMs": {
+        "p50": 233,
+        "p90": 321,
+        "mean": 249
+      },
+      "serverInFlight": 2.21,
+      "decisions": {
+        "model": 489,
+        "fallback": 0
+      },
+      "serverCpuPct": 4,
+      "botCpuPct": 3.2,
+      "startedAt": "2026-11-02T15:02:09.152Z",
+      "complete": true
+    },
+    {
+      "players": 4,
+      "seconds": 55,
+      "requests": 938,
+      "answered": 938,
+      "errors": {
+        "busy": 0,
+        "rateLimited": 0,
+        "dailyLimit": 0,
+        "upstream": 0,
+        "timeout": 0,
+        "network": 0,
+        "other": 0
+      },
+      "byKind": {
+        "rival": 929,
+        "debrief": 2,
+        "steward": 7
+      },
+      "modelCallsPerMin": 1023.3,
+      "tokensPerMin": 642583,
+      "tokensPerCall": 628,
+      "modelMs": {
+        "p50": 226,
+        "p90": 331,
+        "mean": 248
+      },
+      "roundTripMs": {
+        "p50": 228,
+        "p90": 333,
+        "mean": 250
+      },
+      "serverInFlight": 4.23,
+      "decisions": {
+        "model": 929,
+        "fallback": 0
+      },
+      "serverCpuPct": 5.4,
+      "botCpuPct": 4.3,
+      "startedAt": "2026-11-02T15:03:09.260Z",
+      "complete": true
+    },
+    {
+      "players": 8,
+      "seconds": 55,
+      "requests": 1908,
+      "answered": 1908,
+      "errors": {
+        "busy": 0,
+        "rateLimited": 0,
+        "dailyLimit": 0,
+        "upstream": 0,
+        "timeout": 0,
+        "network": 0,
+        "other": 0
+      },
+      "byKind": {
+        "rival": 1899,
+        "debrief": 3,
+        "steward": 6
+      },
+      "modelCallsPerMin": 2081.4,
+      "tokensPerMin": 1304838,
+      "tokensPerCall": 626.9,
+      "modelMs": {
+        "p50": 228,
+        "p90": 321,
+        "mean": 244
+      },
+      "roundTripMs": {
+        "p50": 229,
+        "p90": 322,
+        "mean": 246
+      },
+      "serverInFlight": 8.48,
+      "decisions": {
+        "model": 1899,
+        "fallback": 0
+      },
+      "serverCpuPct": 8.2,
+      "botCpuPct": 7,
+      "startedAt": "2026-11-02T15:04:09.420Z",
+      "complete": true
+    },
+    {
+      "players": 16,
+      "seconds": 55,
+      "requests": 3710,
+      "answered": 3708,
+      "errors": {
+        "busy": 0,
+        "rateLimited": 1,
+        "dailyLimit": 0,
+        "upstream": 0,
+        "timeout": 1,
+        "network": 0,
+        "other": 0
+      },
+      "byKind": {
+        "rival": 3687,
+        "debrief": 6,
+        "steward": 17
+      },
+      "modelCallsPerMin": 4046.1,
+      "tokensPerMin": 2538339,
+      "tokensPerCall": 627.5,
+      "modelMs": {
+        "p50": 230,
+        "p90": 324,
+        "mean": 248
+      },
+      "roundTripMs": {
+        "p50": 232,
+        "p90": 327,
+        "mean": 250
+      },
+      "serverInFlight": 16.74,
+      "decisions": {
+        "model": 3685,
+        "fallback": 2
+      },
+      "serverCpuPct": 11.1,
+      "botCpuPct": 10.4,
+      "startedAt": "2026-11-02T15:05:09.758Z",
+      "complete": true
+    }
+  ]
+}

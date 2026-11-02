@@ -1,0 +1,194 @@
+{
+  "tool": "luna-gp-loadtest",
+  "version": 1,
+  "label": "From Johannesburg",
+  "where": "bots on the internet",
+  "target": "https://aka.ms/racing",
+  "model": "Microsoft-Decision-1 (decision-1-dz)",
+  "networkRttMs": 245.6,
+  "startedAt": "2026-11-02T14:13:52.710Z",
+  "settings": {
+    "players": [
+      1,
+      2,
+      4,
+      8
+    ],
+    "stepSeconds": 60,
+    "settleSeconds": 5,
+    "betweenRacesSeconds": 5,
+    "laps": 3
+  },
+  "host": {
+    "cpus": 24,
+    "node": "v26.13.0",
+    "serverCpuMeasured": false
+  },
+  "stopReason": null,
+  "steps": [
+    {
+      "players": 1,
+      "seconds": 55,
+      "requests": 204,
+      "answered": 204,
+      "errors": {
+        "busy": 0,
+        "rateLimited": 0,
+        "dailyLimit": 0,
+        "upstream": 0,
+        "timeout": 0,
+        "network": 0,
+        "other": 0
+      },
+      "byKind": {
+        "rival": 204
+      },
+      "modelCallsPerMin": 222.5,
+      "tokensPerMin": 140413,
+      "tokensPerCall": 631,
+      "modelMs": {
+        "p50": 224,
+        "p90": 300,
+        "mean": 236
+      },
+      "roundTripMs": {
+        "p50": 472,
+        "p90": 554,
+        "mean": 485
+      },
+      "serverInFlight": 0.87,
+      "decisions": {
+        "model": 204,
+        "fallback": 0
+      },
+      "serverCpuPct": null,
+      "botCpuPct": 1.3,
+      "startedAt": "2026-11-02T14:13:57.736Z",
+      "complete": true
+    },
+    {
+      "players": 2,
+      "seconds": 55,
+      "requests": 406,
+      "answered": 405,
+      "errors": {
+        "busy": 0,
+        "rateLimited": 0,
+        "dailyLimit": 0,
+        "upstream": 0,
+        "timeout": 1,
+        "network": 0,
+        "other": 0
+      },
+      "byKind": {
+        "rival": 403,
+        "steward": 3
+      },
+      "modelCallsPerMin": 441.8,
+      "tokensPerMin": 278577,
+      "tokensPerCall": 630.6,
+      "modelMs": {
+        "p50": 230,
+        "p90": 323,
+        "mean": 248
+      },
+      "roundTripMs": {
+        "p50": 478,
+        "p90": 572,
+        "mean": 497
+      },
+      "serverInFlight": 1.83,
+      "decisions": {
+        "model": 402,
+        "fallback": 1
+      },
+      "serverCpuPct": null,
+      "botCpuPct": 1.4,
+      "startedAt": "2026-11-02T14:14:57.757Z",
+      "complete": true
+    },
+    {
+      "players": 4,
+      "seconds": 55,
+      "requests": 777,
+      "answered": 777,
+      "errors": {
+        "busy": 0,
+        "rateLimited": 0,
+        "dailyLimit": 0,
+        "upstream": 0,
+        "timeout": 0,
+        "network": 0,
+        "other": 0
+      },
+      "byKind": {
+        "rival": 776,
+        "debrief": 1
+      },
+      "modelCallsPerMin": 847.4,
+      "tokensPerMin": 528405,
+      "tokensPerCall": 623.5,
+      "modelMs": {
+        "p50": 231,
+        "p90": 319,
+        "mean": 245
+      },
+      "roundTripMs": {
+        "p50": 479,
+        "p90": 569,
+        "mean": 493
+      },
+      "serverInFlight": 3.46,
+      "decisions": {
+        "model": 776,
+        "fallback": 0
+      },
+      "serverCpuPct": null,
+      "botCpuPct": 1.7,
+      "startedAt": "2026-11-02T14:15:57.813Z",
+      "complete": true
+    },
+    {
+      "players": 8,
+      "seconds": 55,
+      "requests": 1500,
+      "answered": 1497,
+      "errors": {
+        "busy": 2,
+        "rateLimited": 0,
+        "dailyLimit": 0,
+        "upstream": 0,
+        "timeout": 1,
+        "network": 0,
+        "other": 0
+      },
+      "byKind": {
+        "rival": 1484,
+        "steward": 12,
+        "debrief": 4
+      },
+      "modelCallsPerMin": 1633.1,
+      "tokensPerMin": 1018651,
+      "tokensPerCall": 623.8,
+      "modelMs": {
+        "p50": 232,
+        "p90": 326,
+        "mean": 249
+      },
+      "roundTripMs": {
+        "p50": 479,
+        "p90": 573,
+        "mean": 497
+      },
+      "serverInFlight": 6.79,
+      "decisions": {
+        "model": 1481,
+        "fallback": 3
+      },
+      "serverCpuPct": null,
+      "botCpuPct": 2.4,
+      "startedAt": "2026-11-02T14:16:57.944Z",
+      "complete": true
+    }
+  ]
+}

@@ -39,7 +39,7 @@ Put the web app in a region inside the model deployment's data zone, so requests
 quota pools (GlobalStandard, or another data zone) or request a quota increase in the Foundry portal.
 
 > The web app is public and unauthenticated: anyone with the URL can call the API, which uses your model quota and is
-> billed to the subscription. The server caps work at 16 decisions in flight and at `DAILY_CALL_LIMIT` model calls per
+> billed to the subscription. The server caps work at 64 decisions in flight and at `DAILY_CALL_LIMIT` model calls per
 > UTC day (default 20,000, about $0.50 a day); after that, rivals use offline heuristics until the next day. Stop the app
 > (`az webapp stop -g <resource-group> -n <app-name>`) when you're not using it.
 
@@ -264,6 +264,28 @@ Parallel single-question calls are about as fast as one batched call but use ~65
 the race situation is sent three times. Sequential calls are about 2.6× slower. All setups picked the same maneuver in
 9–10 of 10 situations.
 
+## Load test
+
+`npm run loadtest` races headless bot players against a game server. Each bot runs the game's own race simulation and
+calls the server the way the browser does. The test adds players step by step (1, 2, 4 and 8 by default, a minute each),
+and `npm run loadtest -- chart` draws the runs and predicts how many players fit.
+
+![How many LUNA GP players at once? Model calls per minute for 1 to 16 players, before and after raising the game server's in-flight cap from 16 to 64, with the predicted limits](docs/images/load-test.png)
+
+On the live game (2 November 2026), each player made about 254 model calls a minute next to Azure, and about 207 from
+Johannesburg. With at most 16 calls in flight, the game server turned away 21% of the calls at 16 players. With 64
+(`MAX_IN_FLIGHT` in `lib/limits.js`) it turned none away, so the model deployment is now the limit: 10,200 calls a
+minute, about 32 players with 20% kept free. The daily cap of 20,000 calls is about 79 player-minutes of racing.
+
+```powershell
+npm run loadtest -- --target https://aka.ms/racing --label "From Johannesburg" --where "bots on the internet" --out far.json
+npm run loadtest -- chart near.json far.json --before near-cap16.json --before-max-in-flight 16 --rpm 10200 --tpm 10200000 --out docs/images/load-test.svg
+```
+
+For the runs next to Azure, the bots ran inside the web app's container (`az webapp create-remote-connection`, then SSH),
+against `http://127.0.0.1:8080`. Load tests spend real model calls and count against the daily cap. The runs are in
+[`docs/load-test/`](docs/load-test/), and `npm run loadtest -- --help` lists every option.
+
 ## Configuration
 
 | Variable             | Default         | Purpose                                                                 |
@@ -288,12 +310,15 @@ clamps every field before building a request, so other web pages can't spend you
 ```text
 server.js             Static files + /api/rival, /api/steward, /api/debrief, /api/duel, /api/status
 bench.js              Command-line speed test (npm run bench)
+loadtest.js           Command-line load test and capacity chart (npm run loadtest)
 lib/foundry.js        Foundry config and auth: API key, managed identity, or Azure CLI token
 lib/decisions.js      Microsoft-Decision-1 client; translates questions/answers to and from the systemone format
 lib/openai.js         Shared fetch helper: timeouts, errors and round-trip timing
 lib/benchmark.js      Duel race situations and contenders (batched, parallel, sequential)
 lib/prompts.js        Builds the evidence text and typed questions; validates all browser input
 lib/env.js            Reads variables from the process env, then the saved Windows environment
+lib/limits.js         Server limits: calls in flight and model calls per day
+lib/loadtest.js       Load test bots; lib/capacity.js predicts capacity and lib/capacity-chart.js draws the chart
 public/js/race.js     Physics, rival driving, contacts, laps, standings and API payloads
 public/js/rivals.js   Per-rival decision scheduling, nitro thresholds, offline fallback
 public/js/control.js  Race Control reviews and penalties
@@ -313,5 +338,6 @@ npm test
 
 The tests cover the Foundry client (request/answer translation, with `fetch` mocked), Entra ID / managed identity token
 handling, the prompt builders and input validation, the duel contenders and latency statistics, the engine sound and
-the soundtrack's score, and a headless race
-simulation that checks the payloads the game sends are accepted by the server. The tests make no network calls.
+the soundtrack's score, a headless race
+simulation that checks the payloads the game sends are accepted by the server, and the load test. The tests make no
+network calls.

@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { decisionsContender, opponents, runContender, SCENARIOS } from "./lib/benchmark.js";
 import { createDecisionsClient, MODEL_NAME } from "./lib/decisions.js";
 import { foundryAuth, resolveFoundryConfig } from "./lib/foundry.js";
+import { DEFAULT_DAILY_CALL_LIMIT, MAX_IN_FLIGHT } from "./lib/limits.js";
 import { OpenAIError } from "./lib/openai.js";
 import {
   buildDebriefRequest,
@@ -24,9 +25,8 @@ const PUBLIC_DIR = path.join(ROOT, "public");
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || "127.0.0.1";
 const VERBOSE = process.env.LOG_DECISIONS === "1";
-const MAX_IN_FLIGHT = 16;
 // Hard cap on model calls per UTC day, so a public server can't run up an unbounded bill.
-const DAILY_CALL_LIMIT = Number(process.env.DAILY_CALL_LIMIT) || 20_000;
+const DAILY_CALL_LIMIT = Number(process.env.DAILY_CALL_LIMIT) || DEFAULT_DAILY_CALL_LIMIT;
 const DAILY_LIMIT_REACHED = "Daily AI decision limit reached";
 
 const MIME = {
