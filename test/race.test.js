@@ -3,7 +3,7 @@
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { CAR_LENGTH, CENTRIFUGAL, GHOST_TIME, MAX_SPEED, OFF_ROAD_RESCUE, ROAD_WIDTH, SEGMENT_LENGTH, STEP } from "../public/js/config.js";
+import { CAR_HALF, CAR_LENGTH, CENTRIFUGAL, GHOST_TIME, MAX_SPEED, OFF_ROAD_RESCUE, ROAD_WIDTH, SEGMENT_LENGTH, STEP } from "../public/js/config.js";
 import { isGhost, Race } from "../public/js/race.js";
 import { localDecision, RivalBrains } from "../public/js/rivals.js";
 import { SPRITE_TYPES, Track } from "../public/js/track.js";
@@ -133,6 +133,42 @@ describe("contacts", () => {
     assert.ok(race.player.speed < MAX_SPEED * 0.95, "the rear car should lose speed");
     const { input } = buildStewardRequest(contact.incident);
     assert.match(input, new RegExp(`the player ran into the back of ${rival.name}`));
+  });
+
+  it("report sideways movement from before the collision pushes the cars apart", () => {
+    const track = new Track();
+    const race = new Race({ track, laps: 3 });
+    race.phase = "racing";
+    const [rival, ...others] = race.rivals;
+    const straight = track.segments.findIndex((_, i) => track.segments.slice(i, i + 60).every((s) => s.curve === 0));
+    assert.ok(straight >= 0, "expected a long straight");
+    const z = (straight + 2) * SEGMENT_LENGTH;
+    others.forEach((car, i) => {
+      car.launchDelay = Infinity;
+      car.progress = z + (i + 10) * CAR_LENGTH * 3;
+    });
+    rival.launchDelay = 0;
+    rival.progress = z + CAR_LENGTH * 0.2;
+    rival.offset = CAR_HALF * 2 + 0.01;
+    race.player.progress = z;
+    race.player.offset = 0;
+    for (const car of [race.player, rival]) {
+      car.speed = MAX_SPEED * 0.9;
+      car.prevProgress = car.progress;
+      car.history.fill(car.offset);
+    }
+
+    // Edge right into the rival: a small squeeze, about a tenth of a lane.
+    let contact;
+    for (let step = 0; step < 30 && !contact; step++) {
+      race.update(STEP, { up: true, right: true });
+      contact = race.drainEvents().find((e) => e.type === "contact");
+    }
+    assert.ok(contact, "expected a contact event");
+    assert.equal(contact.incident.kind, "side");
+    assert.ok(Math.abs(contact.incident.rivalLateral) < 0.005, `the rival held its line, got ${contact.incident.rivalLateral}`);
+    const { input } = buildStewardRequest(contact.incident);
+    assert.match(input, new RegExp(`the player moved 0\\.\\d+ lane widths toward ${rival.name}; ${rival.name} held its line`));
   });
 });
 

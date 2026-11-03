@@ -514,9 +514,12 @@ export class Race {
     const rival = a.isPlayer ? b : a;
     const playerSpeed = a.isPlayer ? speedA : speedB;
     const rivalSpeed = a.isPlayer ? speedB : speedA;
+    // Offsets as recorded this step, before handleContacts pushed the cars apart.
+    const pNow = this.offsetAgo(player, 0);
+    const rNow = this.offsetAgo(rival, 0);
     const pThen = this.offsetAgo(player, LOOKBACK);
     const rThen = this.offsetAgo(rival, LOOKBACK);
-    const dir = Math.sign(rival.offset - player.offset) || Math.sign(rThen - pThen) || 1;
+    const dir = Math.sign(rNow - pNow) || Math.sign(rThen - pThen) || 1;
     const intensity = clamp(Math.abs(playerSpeed - rivalSpeed) / (MAX_SPEED * 0.25) + 0.25, 0.25, 1);
 
     this.events.push({
@@ -532,12 +535,12 @@ export class Race {
         front: kind === "side" ? "level" : front === player ? "player" : "rival",
         playerSpeedKmh: Math.round(toKmh(playerSpeed)),
         rivalSpeedKmh: Math.round(toKmh(rivalSpeed)),
-        playerLateral: Number(((player.offset - pThen) * dir).toFixed(3)),
-        rivalLateral: Number(((rival.offset - rThen) * -dir).toFixed(3)),
+        playerLateral: Number(((pNow - pThen) * dir).toFixed(3)),
+        rivalLateral: Number(((rNow - rThen) * -dir).toFixed(3)),
         rivalManeuver: rival.brain?.maneuver ?? null,
         playerBraking: player.braking,
         playerNitro: player.nitroTime > 0,
-        playerOffTrack: Math.abs(player.offset) > 1,
+        playerOffTrack: Math.abs(pNow) > 1,
       },
     });
   }
